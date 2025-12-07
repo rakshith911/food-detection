@@ -1,0 +1,17 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+tfplan
+.terraform.lock.hcl
+
+# Build artifacts
+*.zip
+
+# Logs
+*.log
+*.txt
+
+# PowerShell scripts (local only)
+build-and-push.ps1
