@@ -1,0 +1,122 @@
+Effective Date: November 2, 2025
+
+1. Acceptance of Terms
+
+By downloading, accessing, or using the UKcal mobile application (“App”), you acknowledge that you have read, understood, and agree to be bound by these Terms and Conditions (“Terms”).If you do not agree with these Terms, you must not use the App.
+
+
+
+2. Purpose and Research Context
+
+The UKcal App is developed as part of a research study to evaluate artificial intelligence (AI) models for estimating calorie content from images or videos of meals. The App is not a commercial product and is provided solely for research and evaluation purposes. By participating, you agree to allow anonymized data from your interactions to be used for academic research and improvement of AI performance.
+
+
+
+3. Changes to Terms
+
+We reserve the right to update or modify these Terms at any time. Any changes will be effective upon posting within the App. Continued use of the App after such changes constitutes your acceptance of the revised Terms.
+
+
+
+4. User Eligibility
+
+You must be at least 18 years old to use this App. By using the App, you represent that you are of legal age and eligible to participate in this research study.
+
+
+
+5. Data Collection and Use
+
+The UKcal App collects images or short videos of food dishes, along with optional text descriptions (e.g., dish name, ingredients, or menu items).By using the App, you consent to:
+
+The collection and storage of these images and associated metadata.
+
+The use of anonymized data for research, statistical analysis, and AI model improvement.
+
+The storage of feedback data (e.g., ratings or corrections) to refine AI performance.
+
+The data collected will not include any personal identifiers and will be used only for research purposes related to calorie estimation and AI development.
+
+
+
+6. Privacy and Data Security
+
+We employ appropriate administrative, technical, and physical safeguards to protect collected data against unauthorized access, loss, or misuse. However, no system is completely secure, and you acknowledge that participation involves minimal inherent digital risk. Data will be anonymized before analysis, and identifying information (such as names or contact details) will never be publicly disclosed.
+
+
+
+7. Research Nature and Disclaimer
+
+The App provides AI-generated calorie and nutrient estimates for informational and research purposes only.These estimates:
+
+Are not intended for medical, dietary, or regulatory use.
+
+May not always be accurate or precise.
+
+Should not replace professional nutritional or medical advice.
+
+Participants use the App voluntarily and at their own discretion.
+
+
+
+8. Intellectual Property
+
+All content, materials, algorithms, and software used in the App—including AI models, graphics, and design elements—remain the intellectual property of the research team.
+
+
+
+9. Acceptable Use
+
+You agree not to:
+
+Upload images containing people’s faces, personal documents, or sensitive information.
+
+Use the App for any commercial or unlawful purpose.
+
+Attempt to reverse engineer, copy, or modify any part of the App.
+
+Interfere with the App’s operation or security features.
+
+
+
+10. Termination
+
+Your access to the App may be suspended or terminated at any time for research, ethical, or technical reasons. You may withdraw from the study at any time by uninstalling the App.
+
+
+
+11. No Warranties
+
+The App is provided “as is” for research purposes. No express or implied warranties are made regarding the accuracy, reliability, or suitability of the AI-generated information. We disclaim all liability for any direct or indirect consequences resulting from use of the App or its outputs.
+
+
+
+12. Limitation of Liability
+
+To the maximum extent permitted by law, the research team shall not be liable for any direct, indirect, incidental, or consequential damages arising from your participation or use of the App.
+
+
+
+13. Indemnification
+
+By using the App, you agree to indemnify and hold harmless the research team and affiliated entities from any claims, damages, or liabilities arising from your participation or misuse of the App.
+
+
+
+14. Governing Law
+
+These Terms are governed by and construed in accordance with applicable laws of the jurisdiction where the research is conducted.
+
+
+
+15. Entire Agreement
+
+These Terms, together with the UKcal Research Consent Form and Privacy Statement, constitute the entire agreement governing your use of the App and participation in the study.
+
+
+
+16. Electronic Consent
+
+Your use of the App and digital acceptance of these Terms constitute your consent and agreement to participate under these conditions.
+
+
+

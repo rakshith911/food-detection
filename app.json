@@ -2,11 +2,12 @@
   "expo": {
     "name": "food-detection",
     "slug": "food-detection",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "jsEngine": "hermes",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -14,19 +15,63 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.firebeats.fooddetection"
+      "bundleIdentifier": "com.firebeats.fooddetection",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app needs access to camera to take photos of food for analysis.",
+        "NSMicrophoneUsageDescription": "This app needs access to microphone for video recording.",
+        "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select food images."
+      }
     },
     "android": {
+      "jsEngine": "hermes",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#ffffff",
+        "monochromeImage": "./assets/icon.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.firebeats.fooddetection"
+      "package": "com.firebeats.fooddetection",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "softwareKeyboardLayoutMode": "pan"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "906896f5-db4f-47cc-85e8-7e58524a14d8"
+      }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "enableMicrophonePermission": true,
+          "cameraPermissionText": "$(PRODUCT_NAME) needs access to your Camera.",
+          "microphonePermissionText": "$(PRODUCT_NAME) needs access to your Microphone."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos.",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
+    ]
   }
 }

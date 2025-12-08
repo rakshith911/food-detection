@@ -1,0 +1,81 @@
+{
+    "containerDefinitions": [
+        {
+            "name": "video-processor",
+            "image": "185329004895.dkr.ecr.us-east-1.amazonaws.com/nutrition-video-analysis-dev-video-processor:latest",
+            "cpu": 0,
+            "portMappings": [],
+            "essential": true,
+            "environment": [
+                {
+                    "name": "S3_RESULTS_BUCKET",
+                    "value": "nutrition-video-analysis-dev-results-dbenpoj2"
+                },
+                {
+                    "name": "S3_VIDEOS_BUCKET",
+                    "value": "nutrition-video-analysis-dev-videos-dbenpoj2"
+                },
+                {
+                    "name": "AWS_REGION",
+                    "value": "us-east-1"
+                },
+                {
+                    "name": "S3_MODELS_BUCKET",
+                    "value": "nutrition-video-analysis-dev-models-dbenpoj2"
+                },
+                {
+                    "name": "DEVICE",
+                    "value": "cpu"
+                },
+                {
+                    "name": "SQS_VIDEO_QUEUE_URL",
+                    "value": "https://sqs.us-east-1.amazonaws.com/185329004895/nutrition-video-analysis-dev-video-processing"
+                },
+                {
+                    "name": "DYNAMODB_JOBS_TABLE",
+                    "value": "nutrition-video-analysis-dev-jobs"
+                },
+                {
+                    "name": "DEBUG",
+                    "value": "true"
+                }
+            ],
+            "mountPoints": [],
+            "volumesFrom": [],
+            "secrets": [
+                {
+                    "name": "GEMINI_API_KEY",
+                    "valueFrom": "arn:aws:ssm:us-east-1:185329004895:parameter/nutrition-video-analysis-dev/gemini-api-key"
+                }
+            ],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/nutrition-video-analysis-dev-video-processor",
+                    "awslogs-region": "us-east-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            },
+            "healthCheck": {
+                "command": [
+                    "CMD-SHELL",
+                    "python -c 'print(1)' || exit 1"
+                ],
+                "interval": 30,
+                "timeout": 5,
+                "retries": 3,
+                "startPeriod": 60
+            },
+            "systemControls": []
+        }
+    ],
+    "family": "nutrition-video-analysis-dev-video-processor",
+    "taskRoleArn": "arn:aws:iam::185329004895:role/nutrition-video-analysis-dev-ecs-task-20251207194437704600000002",
+    "executionRoleArn": "arn:aws:iam::185329004895:role/nutrition-video-analysis-dev-ecs-exec-20251207194438790300000005",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "4096",
+    "memory": "16384"
+}

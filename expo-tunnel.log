@@ -1,0 +1,16 @@
+Starting project at D:\Nutrition5k\food-detection
+Starting Metro Bundler
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Tunnel connected.
+Tunnel ready.
+Waiting on http://localhost:8082
+Logs for your project will appear below.
+Web .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web .\index.ts ▓▓▓▓▓▓▓▓▓░░░░░░░ 60.9% (32/41)
+Web .\index.ts ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 71.9% (233/456)
+Web .\index.ts ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 71.9% ( 561/1143)
+Web .\index.ts ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 71.9% (1130/1458)
+Web .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 78.9% (1797/2184)
+Web .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░ 86.2% (2606/2842)
+Web Bundled 23082ms index.ts (3096 modules)
+ LOG  [web] Logs will appear in the browser console

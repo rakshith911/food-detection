@@ -399,6 +399,43 @@ def poll_queue():
             time.sleep(5)  # Wait before retrying
 
 
+def download_models_from_s3():
+    """Download AI model checkpoints from S3 if they don't exist locally."""
+    if not S3_MODELS_BUCKET:
+        print("S3_MODELS_BUCKET not set, skipping model download")
+        return
+    
+    # Define models to download
+    models = [
+        ('checkpoints/sam2.1_hiera_base_plus.pt', '/app/checkpoints/sam2.1_hiera_base_plus.pt'),
+        ('checkpoints/sam2.1_hiera_large.pt', '/app/checkpoints/sam2.1_hiera_large.pt'),
+        ('checkpoints/sam2.1_hiera_small.pt', '/app/checkpoints/sam2.1_hiera_small.pt'),
+        ('checkpoints/sam2.1_hiera_tiny.pt', '/app/checkpoints/sam2.1_hiera_tiny.pt'),
+        ('gdino_checkpoints/groundingdino_swint_ogc.pth', '/app/gdino_checkpoints/groundingdino_swint_ogc.pth'),
+        ('gdino_checkpoints/groundingdino_swinb_cogcoor.pth', '/app/gdino_checkpoints/groundingdino_swinb_cogcoor.pth'),
+    ]
+    
+    print(f"Downloading models from s3://{S3_MODELS_BUCKET}...")
+    
+    for s3_key, local_path in models:
+        # Create directory if needed
+        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        
+        # Skip if already exists
+        if os.path.exists(local_path):
+            print(f"  ✓ {os.path.basename(local_path)} already exists")
+            continue
+        
+        try:
+            print(f"  Downloading {s3_key}...")
+            s3.download_file(S3_MODELS_BUCKET, s3_key, local_path)
+            print(f"  ✓ Downloaded {os.path.basename(local_path)}")
+        except Exception as e:
+            print(f"  ✗ Failed to download {s3_key}: {e}")
+    
+    print("Model download complete!")
+
+
 if __name__ == '__main__':
     # Validate environment
     required_vars = [
@@ -412,5 +449,8 @@ if __name__ == '__main__':
     if missing:
         print(f"Error: Missing required environment variables: {missing}")
         sys.exit(1)
+
+    # Download models from S3 before starting
+    download_models_from_s3()
 
     poll_queue()

@@ -26,9 +26,9 @@ fi
 # Clone repository
 echo "Cloning repository..."
 cd /home/ec2-user
-rm -rf FoodAI
-git clone https://github.com/PraneethKumarT/FoodAI.git
-cd FoodAI/nutrition-video-analysis
+rm -rf food-detection
+git clone https://github.com/leolorence12345/food-detection.git
+cd food-detection/FoodAI/nutrition-video-analysis/terraform/docker
 
 # Log in to ECR
 echo "Logging in to ECR..."
@@ -36,7 +36,7 @@ aws ecr get-login-password --region ${REGION} | docker login --username AWS --pa
 
 # Build AMD64 image
 echo "Building AMD64 Docker image (this will take 10-15 minutes)..."
-docker build --platform linux/amd64 -f deploy/Dockerfile -t ${ECR_REPOSITORY}:latest .
+docker build --platform linux/amd64 -f Dockerfile -t ${ECR_REPOSITORY}:latest .
 
 # Push to ECR
 echo "Pushing image to ECR..."
