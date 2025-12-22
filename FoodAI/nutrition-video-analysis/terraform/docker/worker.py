@@ -57,7 +57,8 @@ def update_job_status(job_id: str, status: str, **kwargs):
     }
 
     for key, value in kwargs.items():
-        update_expr += f', {key} = :{key}'
+        update_expr += f', #{key} = :{key}'
+        expr_names[f'#{key}'] = key
         expr_values[f':{key}'] = convert_floats_to_decimal(value)
 
     table.update_item(
