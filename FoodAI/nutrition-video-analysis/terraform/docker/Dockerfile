@@ -1,21 +1,15 @@
 # Nutrition Video Analysis - ECS Worker Container
-# Base image with CUDA support for GPU processing
+# CPU-optimized for Fargate (no GPU support)
 
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+FROM python:3.10-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV DEBIAN_FRONTEND=noninteractive
-ENV CUDA_HOME=/usr/local/cuda
-ENV PATH=$CUDA_HOME/bin:$PATH
-ENV LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 
-# Install Python and system dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 \
-    python3-pip \
-    python3-dev \
     ffmpeg \
     libsm6 \
     libxext6 \
@@ -23,22 +17,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     git \
     curl \
-    build-essential \
-    wget \
     && rm -rf /var/lib/apt/lists/*
-
-# Set python3 as default python
-RUN ln -s /usr/bin/python3 /usr/bin/python
 
 # Create app directory
 WORKDIR /app
 
-# Install Python dependencies
+# Install PyTorch CPU version first (much smaller and faster)
+RUN pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.1.0+cpu torchvision==0.16.0+cpu
+
+# Copy and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Try to install flash-attn (optional, may fail on some platforms)
-RUN pip install --no-cache-dir flash-attn==2.3.6 || echo "flash-attn installation failed, continuing without it"
 
 # Copy worker script
 COPY worker.py .
