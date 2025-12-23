@@ -35,8 +35,8 @@ RUN pip install --no-cache-dir \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Force reinstall transformers to break Docker cache
-RUN pip install --no-cache-dir --force-reinstall transformers==4.37.0
+# Force reinstall transformers to break Docker cache (use version from requirements.txt)
+RUN pip install --no-cache-dir --force-reinstall "transformers>=4.45.0"
 
 # Create dummy flash_attn module to satisfy Florence-2 import check
 # The actual model will use eager attention as specified in attn_implementation parameter
