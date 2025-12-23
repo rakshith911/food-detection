@@ -43,6 +43,10 @@ RUN pip install --no-cache-dir --force-reinstall "transformers>=4.50.0"
 RUN mkdir -p /usr/local/lib/python3.10/site-packages/flash_attn && \
     echo "# Dummy flash_attn module for Florence-2 CPU compatibility" > /usr/local/lib/python3.10/site-packages/flash_attn/__init__.py
 
+# Clear any Python cache to ensure fresh code
+RUN find /app -type d -name __pycache__ -exec rm -r {} + 2>/dev/null || true
+RUN find /app -type f -name "*.pyc" -delete 2>/dev/null || true
+
 # Copy worker script
 COPY worker.py .
 
