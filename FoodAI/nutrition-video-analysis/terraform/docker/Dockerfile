@@ -43,15 +43,18 @@ RUN pip install --no-cache-dir --force-reinstall "transformers>=4.50.0"
 RUN mkdir -p /usr/local/lib/python3.10/site-packages/flash_attn && \
     echo "# Dummy flash_attn module for Florence-2 CPU compatibility" > /usr/local/lib/python3.10/site-packages/flash_attn/__init__.py
 
-# Clear any Python cache to ensure fresh code
-RUN find /app -type d -name __pycache__ -exec rm -r {} + 2>/dev/null || true
-RUN find /app -type f -name "*.pyc" -delete 2>/dev/null || true
-
 # Copy worker script
 COPY worker.py .
 
 # Copy AI processing modules
 COPY app/ ./app/
+
+# Clear Python cache AFTER copying to ensure fresh code (no cached bytecode)
+RUN find /app -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
+    find /app -type f -name "*.pyc" -delete 2>/dev/null || true && \
+    find /app -type f -name "*.pyo" -delete 2>/dev/null || true && \
+    python3 -Bc "import compileall; compileall.compile_dir('/app', force=True)" 2>/dev/null || true && \
+    echo "Python cache cleared"
 
 # Copy SAM2 package to root so it's importable as 'sam2'
 COPY sam2_package/sam2 ./sam2/
