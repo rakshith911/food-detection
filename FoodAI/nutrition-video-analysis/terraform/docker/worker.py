@@ -349,7 +349,7 @@ def process_message(message: dict):
         )
 
     except Exception as e:
-        print(f"Error processing job {job_id}: {str(e)}")
+        print(f"CRITICAL ERROR processing job {job_id}: {str(e)}")
         traceback.print_exc()
 
         # Update job as failed
@@ -361,6 +361,9 @@ def process_message(message: dict):
 
         # Don't delete message - let it return to queue for retry
         # After max retries, it will go to DLQ if configured
+        
+        # Re-raise to ensure we don't silently continue
+        raise
 
 
 def poll_queue():
