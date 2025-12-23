@@ -4,12 +4,19 @@ Handles initialization of Florence-2, SAM2, Metric3D, and RAG system
 """
 # CRITICAL: Patch transformers.utils BEFORE importing transformers
 # Florence-2's custom code executes at import time and needs this function
+# We must import transformers first to get the utils module, then patch it
+import transformers
 import transformers.utils as transformers_utils
+
+# Apply patch immediately
 if not hasattr(transformers_utils, 'is_flash_attn_greater_or_equal_2_10'):
     def is_flash_attn_greater_or_equal_2_10():
         """Check if flash_attn version >= 2.10. Returns False for CPU-only environments."""
         return False  # Always False for CPU, which is what we want
     transformers_utils.is_flash_attn_greater_or_equal_2_10 = is_flash_attn_greater_or_equal_2_10
+    print("✅ Applied monkey patch for is_flash_attn_greater_or_equal_2_10 in models.py")
+else:
+    print("✅ is_flash_attn_greater_or_equal_2_10 already exists in transformers.utils")
 
 import torch
 import numpy as np
