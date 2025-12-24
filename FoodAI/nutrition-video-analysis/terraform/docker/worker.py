@@ -263,12 +263,43 @@ def real_process_video(video_path: str, job_id: str) -> dict:
 
 def process_message(message: dict):
     """Process a single SQS message."""
-
-    body = json.loads(message['Body'])
+    receipt_handle = message['ReceiptHandle']
+    
+    try:
+        body = json.loads(message['Body'])
+    except json.JSONDecodeError as e:
+        print(f"❌ ERROR: Invalid JSON in message body: {e}")
+        print(f"   Message body (first 200 chars): {str(message.get('Body', ''))[:200]}")
+        print(f"   Deleting malformed message from queue...")
+        # Delete the malformed message so it doesn't keep retrying
+        try:
+            sqs_client.delete_message(
+                QueueUrl=SQS_QUEUE_URL,
+                ReceiptHandle=receipt_handle
+            )
+            print(f"   ✓ Deleted malformed message")
+        except Exception as delete_error:
+            print(f"   ⚠️ Failed to delete message: {delete_error}")
+        return  # Skip this message
+    
+    # Validate required fields
+    if not all(key in body for key in ['job_id', 's3_bucket', 's3_key']):
+        print(f"❌ ERROR: Missing required fields in message. Got: {list(body.keys())}")
+        print(f"   Expected: ['job_id', 's3_bucket', 's3_key']")
+        # Delete the invalid message
+        try:
+            sqs_client.delete_message(
+                QueueUrl=SQS_QUEUE_URL,
+                ReceiptHandle=receipt_handle
+            )
+            print(f"   ✓ Deleted invalid message")
+        except Exception as delete_error:
+            print(f"   ⚠️ Failed to delete message: {delete_error}")
+        return  # Skip this message
+    
     job_id = body['job_id']
     s3_bucket = body['s3_bucket']
     s3_key = body['s3_key']
-    receipt_handle = message['ReceiptHandle']
 
     print(f"\n{'='*60}")
     print(f"Processing job: {job_id}")
