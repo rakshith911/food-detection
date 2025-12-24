@@ -37,9 +37,10 @@ RUN pip install --no-cache-dir \
 
 # Copy and install Python dependencies
 COPY requirements.txt .
-# Re-pin numpy after installing requirements to prevent any upgrades
-# Some packages (pandas, scipy) try to upgrade numpy to 2.x, which breaks PyTorch 2.1.0
-RUN pip install --no-cache-dir -r requirements.txt && \
+# Use pip constraints to prevent NumPy from being upgraded
+# Create constraints file to lock NumPy version
+RUN echo "numpy==1.24.3" > /tmp/constraints.txt && \
+    pip install --no-cache-dir -r requirements.txt -c /tmp/constraints.txt && \
     pip install --no-cache-dir --force-reinstall "numpy==1.24.3" && \
     pip check && \
     python -c "import numpy; assert numpy.__version__ == '1.24.3', f'NumPy version {numpy.__version__} is wrong! Expected 1.24.3'"
