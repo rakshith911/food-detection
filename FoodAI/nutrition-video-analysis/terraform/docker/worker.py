@@ -273,7 +273,7 @@ def process_message(message: dict):
         print(f"   Deleting malformed message from queue...")
         # Delete the malformed message so it doesn't keep retrying
         try:
-            sqs_client.delete_message(
+            sqs.delete_message(
                 QueueUrl=SQS_QUEUE_URL,
                 ReceiptHandle=receipt_handle
             )
@@ -288,7 +288,7 @@ def process_message(message: dict):
         print(f"   Expected: ['job_id', 's3_bucket', 's3_key']")
         # Delete the invalid message
         try:
-            sqs_client.delete_message(
+            sqs.delete_message(
                 QueueUrl=SQS_QUEUE_URL,
                 ReceiptHandle=receipt_handle
             )
