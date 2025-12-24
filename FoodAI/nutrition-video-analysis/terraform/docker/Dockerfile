@@ -26,19 +26,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create app directory
 WORKDIR /app
 
-# Install PyTorch CPU version first (much smaller and faster)
+# CRITICAL: Install NumPy 1.24.3 FIRST before PyTorch
+# PyTorch 2.1.0 was compiled with NumPy 1.x and will break with NumPy 2.x
+RUN pip install --no-cache-dir "numpy==1.24.3"
+
+# Install PyTorch CPU version (will use the pinned NumPy 1.24.3)
 RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cpu \
     torch==2.1.0+cpu torchvision==0.16.0+cpu
 
 # Copy and install Python dependencies
 COPY requirements.txt .
-# Pin numpy to specific version FIRST and prevent upgrades
+# Re-pin numpy after installing requirements to prevent any upgrades
 # Some packages (pandas, scipy) try to upgrade numpy to 2.x, which breaks PyTorch 2.1.0
-RUN pip install --no-cache-dir "numpy==1.24.3" && \
-    pip install --no-cache-dir -r requirements.txt && \
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir --force-reinstall "numpy==1.24.3" && \
     pip check && \
-    python -c "import numpy; assert numpy.__version__.startswith('1.'), f'NumPy version {numpy.__version__} is too new!'"
+    python -c "import numpy; assert numpy.__version__ == '1.24.3', f'NumPy version {numpy.__version__} is wrong! Expected 1.24.3'"
 
 # Force reinstall transformers to break Docker cache (use version from requirements.txt)
 # Use 4.45.0-4.49.0 for PyTorch 2.1.0 compatibility (4.50.0+ requires PyTorch 2.2.0+)
