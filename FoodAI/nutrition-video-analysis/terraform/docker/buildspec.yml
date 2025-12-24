@@ -20,7 +20,7 @@ phases:
       - echo "Tagging images..."
       - docker tag nutrition-api:latest $ECR_REPO:latest
       - docker tag nutrition-api:latest $ECR_REPO:$IMAGE_TAG
-      - echo "Image tags: latest and $IMAGE_TAG"
+      - echo Image tags: latest and $IMAGE_TAG
 
   post_build:
     commands:
