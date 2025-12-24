@@ -158,6 +158,12 @@ def load_metric3d(model_name: str = "metric3d_vit_small", device: str = "cuda"):
     logger.info(f"Loading Metric3D model: {model_name}...")
     
     try:
+        # Ensure NumPy is imported and available before loading Metric3D
+        # Metric3D's torch.hub.load checks for NumPy availability
+        import numpy as np
+        assert np is not None, "NumPy must be available for Metric3D"
+        logger.info(f"NumPy version: {np.__version__} - verified before Metric3D load")
+        
         model = torch.hub.load(
             'yvanyin/metric3d',
             model_name,
