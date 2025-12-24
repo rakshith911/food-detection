@@ -406,7 +406,9 @@ class NutritionVideoPipeline:
     
     def _estimate_depth_metric3d(self, frame_np, model):
         """Estimate depth using Metric3D (returns meters)"""
-        rgb_input = torch.from_numpy(frame_np).permute(2, 0, 1).unsqueeze(0).float().to(self.device)
+        # Ensure model and input are on the same device
+        model_device = next(model.parameters()).device
+        rgb_input = torch.from_numpy(frame_np).permute(2, 0, 1).unsqueeze(0).float().to(model_device)
         
         with torch.no_grad():
             pred_depth, confidence, output_dict = model.inference({'input': rgb_input})
@@ -431,12 +433,14 @@ class NutritionVideoPipeline:
         plate_region = depth_map_meters[y1:y2, x1:x2]
         avg_plate_depth_m = np.median(plate_region[plate_region > 0])
         
+        # Store plate depth in calibration for volume calculation filtering
+        self.calibration['plate_depth_m'] = float(avg_plate_depth_m)
+        
         logger.info(f"Calibrated: {pixels_per_cm:.2f} px/cm, plate depth: {avg_plate_depth_m:.2f}m")
         return pixels_per_cm, avg_plate_depth_m
     
     def _calculate_volume_metric3d(self, mask, depth_map_meters, box, label):
-        """Calculate volume using metric depth (implementation from test_tracking_metric3d.py)"""
-        # This is a simplified version - full implementation in the original file
+        """Calculate volume using metric depth with realistic constraints"""
         mask_bool = mask.astype(bool)
         depth_values_m = depth_map_meters[mask_bool]
         
@@ -447,28 +451,101 @@ class NutritionVideoPipeline:
         pixels_per_cm = self.calibration['pixels_per_cm']
         surface_area_cm2 = pixel_count / (pixels_per_cm ** 2)
         
+        # Filter valid depths and remove outliers
         valid_depths = depth_values_m[depth_values_m > 0]
         if len(valid_depths) == 0:
             return {'volume_ml': 0.0, 'avg_height_cm': 0.0, 'surface_area_cm2': surface_area_cm2}
         
-        # Height calculation (simplified - see original for full logic)
-        base_depth_m = np.percentile(valid_depths, 75)
-        top_depth_m = np.percentile(valid_depths, 15)
+        # Use plate depth as reference for filtering (if available)
+        plate_depth_m = None
+        if hasattr(self, 'calibration') and 'plate_depth_m' in self.calibration:
+            plate_depth_m = self.calibration.get('plate_depth_m')
+        
+        # Filter depths that are too far from plate depth (likely noise)
+        if plate_depth_m is not None:
+            depth_threshold = 0.5  # 50cm tolerance
+            valid_depths = valid_depths[
+                np.abs(valid_depths - plate_depth_m) < depth_threshold
+            ]
+            if len(valid_depths) == 0:
+                # Fallback: use all depths if filtering removes everything
+                valid_depths = depth_values_m[depth_values_m > 0]
+        
+        # Remove outliers using IQR method
+        if len(valid_depths) > 10:
+            q1 = np.percentile(valid_depths, 25)
+            q3 = np.percentile(valid_depths, 75)
+            iqr = q3 - q1
+            lower_bound = q1 - 1.5 * iqr
+            upper_bound = q3 + 1.5 * iqr
+            valid_depths = valid_depths[
+                (valid_depths >= lower_bound) & (valid_depths <= upper_bound)
+            ]
+        
+        if len(valid_depths) == 0:
+            return {'volume_ml': 0.0, 'avg_height_cm': 0.0, 'surface_area_cm2': surface_area_cm2}
+        
+        # Height calculation: use percentiles for robust estimation
+        # Base is the deepest point (closest to camera), top is shallowest (furthest)
+        base_depth_m = np.percentile(valid_depths, 80)  # Use 80th percentile for base
+        top_depth_m = np.percentile(valid_depths, 20)   # Use 20th percentile for top
         height_cm = max(0, (base_depth_m - top_depth_m) * 100)
         
-        # Object-specific constraints (simplified)
+        # Calculate shape factor dynamically based on depth variation
+        # If depth varies a lot (high std dev), food is irregular (lower factor)
+        # If depth is uniform (low std dev), food is more regular (higher factor)
+        depth_std = np.std(valid_depths)
+        depth_mean = np.mean(valid_depths)
+        depth_cv = depth_std / depth_mean if depth_mean > 0 else 0  # Coefficient of variation
+        
+        # Shape factor: Very conservative range (0.3-0.45) for food on plates
+        # Food on plates spreads out and isn't perfectly shaped, so use lower factors
+        # High variation (CV > 0.1) = irregular shape = lower factor (0.3-0.35)
+        # Low variation (CV < 0.05) = regular shape = higher factor (0.4-0.45)
+        if depth_cv > 0.1:
+            shape_factor = 0.30  # Highly irregular (most food like pasta, rice)
+        elif depth_cv > 0.05:
+            shape_factor = 0.38  # Moderately irregular
+        else:
+            shape_factor = 0.42  # Relatively uniform (still conservative)
+        
+        # Apply realistic height constraints (generic, not food-specific)
         label_lower = label.lower()
+        
         if 'plate' in label_lower:
             height_cm = min(height_cm, 2.5) if height_cm > 5 else max(height_cm, 1.5)
-        elif any(word in label_lower for word in ['glass', 'cup']):
+            shape_factor = 0.5  # Plates are flat
+        elif any(word in label_lower for word in ['glass', 'cup', 'bowl']):
             height_cm = max(height_cm, 8) if height_cm < 3 else min(height_cm, 15)
+            shape_factor = 0.7  # Cups/bowls are more cylindrical
+        else:
+            # Generic food items: realistic height constraints
+            # Most food on plates is 1.5-4cm tall (more conservative)
+            height_cm = min(height_cm, 4.0) if height_cm > 4 else max(height_cm, 1.5)
         
-        volume_ml = surface_area_cm2 * height_cm
+        # Calculate volume with shape correction
+        volume_cm3 = surface_area_cm2 * height_cm * shape_factor
+        volume_ml = volume_cm3  # 1 cm³ = 1 ml
+        
+        # Apply maximum volume constraints based on realistic serving sizes
+        # Typical serving sizes: 150-300ml for most foods, 350ml absolute max
+        max_volume_ml = 350  # 350ml (~1.5 cups) max for any single food item on a plate
+        if volume_ml > max_volume_ml:
+            logger.warning(f"[Volume] Capping volume for {label}: {volume_ml:.1f}ml -> {max_volume_ml}ml")
+            volume_ml = max_volume_ml
+        
+        # Additional validation: if surface area is very large, volume might be overestimated
+        # Typical plate area: ~250-400 cm². If area > 450 cm², apply additional reduction
+        if surface_area_cm2 > 450:
+            area_reduction = 450 / surface_area_cm2  # Reduce proportionally
+            volume_ml = volume_ml * area_reduction
+            logger.info(f"[Volume] Large surface area ({surface_area_cm2:.1f}cm²) for {label}, applying {area_reduction:.2f}x reduction")
         
         return {
             'volume_ml': float(volume_ml),
             'avg_height_cm': float(height_cm),
-            'surface_area_cm2': float(surface_area_cm2)
+            'surface_area_cm2': float(surface_area_cm2),
+            'shape_factor': float(shape_factor)
         }
     
     def _analyze_nutrition(self, tracking_results, job_id):

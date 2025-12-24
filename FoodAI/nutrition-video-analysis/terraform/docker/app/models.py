@@ -163,7 +163,11 @@ def load_metric3d(model_name: str = "metric3d_vit_small", device: str = "cuda"):
             model_name,
             pretrain=True
         )
+        # Force all components to the specified device
         model = model.to(device)
+        # Also ensure all buffers and registered buffers are moved
+        for name, buffer in model.named_buffers():
+            buffer.data = buffer.data.to(device)
         model.eval()
         
         model_cache.set(cache_key, model)
