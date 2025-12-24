@@ -15,9 +15,12 @@ phases:
   build:
     commands:
       - echo Build started on `date`
-      - docker build --no-cache -f FoodAI/nutrition-video-analysis/terraform/docker/Dockerfile -t nutrition-api:latest FoodAI/nutrition-video-analysis/terraform/docker
+      - echo "Building with --no-cache to ensure fresh code (no Docker layer caching)"
+      - docker build --no-cache --pull -f FoodAI/nutrition-video-analysis/terraform/docker/Dockerfile -t nutrition-api:latest FoodAI/nutrition-video-analysis/terraform/docker
+      - echo "Tagging images..."
       - docker tag nutrition-api:latest $ECR_REPO:latest
       - docker tag nutrition-api:latest $ECR_REPO:$IMAGE_TAG
+      - echo "Image tags: latest and $IMAGE_TAG"
 
   post_build:
     commands:
