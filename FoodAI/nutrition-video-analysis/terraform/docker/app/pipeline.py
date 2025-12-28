@@ -169,6 +169,8 @@ class NutritionVideoPipeline:
         colors = {}
         volume_history = {}
         current_window_start = 0
+        video_segments = {}  # Cache propagation results
+        inference_state = None  # Initialize inference state
         
         # Process frames
         for frame_idx, frame in enumerate(frames):
@@ -239,17 +241,20 @@ class NutritionVideoPipeline:
                             )
                         except Exception as e:
                             logger.warning(f"Could not add object ID{obj_id}: {e}")
+                    
+                    # Propagate SAM2 masks ONCE after adding objects
+                    if inference_state is not None and tracked_objects:
+                        logger.info(f"[{job_id}] Propagating SAM2 masks for {len(tracked_objects)} objects...")
+                        video_segments = {}
+                        for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(inference_state):
+                            video_segments[out_frame_idx] = {
+                                out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
+                                for i, out_obj_id in enumerate(out_obj_ids)
+                            }
+                        logger.info(f"[{job_id}] SAM2 propagation complete for {len(video_segments)} frames")
             
-            # Propagate SAM2 masks
-            if tracked_objects:
-                video_segments = {}
-                for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(inference_state):
-                    video_segments[out_frame_idx] = {
-                        out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
-                        for i, out_obj_id in enumerate(out_obj_ids)
-                    }
-                
-                # Get current frame's masks
+            # Use cached video_segments for current frame
+            if tracked_objects and video_segments:
                 relative_idx = frame_idx - current_window_start
                 if relative_idx in video_segments:
                     # Estimate depth
