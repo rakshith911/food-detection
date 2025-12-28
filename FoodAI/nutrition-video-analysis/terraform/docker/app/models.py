@@ -167,37 +167,32 @@ def _find_decoder_recursive(module, visited=None):
 
 def _patch_torch_linspace_for_cpu():
     """
-    Monkey-patch torch.linspace to intercept CUDA device calls when CUDA is not available.
-    This is a more aggressive approach that catches all torch.linspace calls with device="cuda".
+    Patch torch.linspace to automatically replace device="cuda" with device="cpu"
+    when CUDA is not available. This fixes Metric3D's hardcoded CUDA usage.
     """
     if not torch.cuda.is_available():
         original_linspace = torch.linspace
         
         def patched_linspace(*args, device=None, **kwargs):
-            """Patched torch.linspace that replaces CUDA with CPU when CUDA is not available"""
-            if device == "cuda" or (isinstance(device, str) and device.startswith("cuda")):
-                # Replace CUDA device with CPU
+            """Patched torch.linspace that replaces CUDA with CPU when CUDA unavailable"""
+            if device == "cuda" or (isinstance(device, torch.device) and device.type == "cuda"):
                 device = "cpu"
-                logger.debug("Intercepted torch.linspace call with device='cuda', replacing with 'cpu'")
             return original_linspace(*args, device=device, **kwargs)
         
-        # Replace torch.linspace with our patched version
         torch.linspace = patched_linspace
-        logger.info("✓ Patched torch.linspace to intercept CUDA device calls")
+        logger.info("✓ Patched torch.linspace to replace CUDA with CPU")
 
 
 def _patch_metric3d_for_cpu(model, device):
     """
     Patch Metric3D model to use CPU instead of hardcoded CUDA.
-    Uses multiple strategies:
-    1. Monkey-patch torch.linspace to intercept CUDA calls
-    2. Try to find and patch the decoder's get_bins method directly
+    Metric3D's decoder has hardcoded device="cuda" which fails on CPU-only systems.
     """
     if device == "cpu":
-        # Strategy 1: Monkey-patch torch.linspace globally
+        # First, patch torch.linspace globally to intercept CUDA calls
         _patch_torch_linspace_for_cpu()
         
-        # Strategy 2: Try to find and patch decoder directly
+        # Get the actual device from the model
         model_device = next(model.parameters()).device
         logger.info(f"Patching Metric3D for CPU - model device: {model_device}")
         
@@ -238,7 +233,7 @@ def _patch_metric3d_for_cpu(model, device):
             decoder.get_bins = types.MethodType(patched_get_bins, decoder)
             logger.info(f"✓ Patched Metric3D decoder.get_bins to use {model_device} instead of CUDA")
         else:
-            logger.warning("⚠ Could not find Metric3D decoder with get_bins method - relying on torch.linspace patch")
+            logger.warning("⚠ Could not find Metric3D decoder with get_bins method - using torch.linspace patch as fallback")
 
 
 def load_metric3d(model_name: str = "metric3d_vit_small", device: str = "cuda"):
@@ -261,6 +256,11 @@ def load_metric3d(model_name: str = "metric3d_vit_small", device: str = "cuda"):
     logger.info(f"Loading Metric3D model: {model_name}...")
     
     try:
+        # CRITICAL: Patch torch.linspace BEFORE loading Metric3D
+        # This intercepts all CUDA device calls and replaces with CPU
+        if device == "cpu":
+            _patch_torch_linspace_for_cpu()
+        
         # Ensure NumPy is imported and available before loading Metric3D
         # Metric3D's torch.hub.load checks for NumPy availability
         import numpy as np
