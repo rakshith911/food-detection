@@ -268,7 +268,7 @@ def process_message(message: dict):
     try:
         body = json.loads(message['Body'])
     except json.JSONDecodeError as e:
-        print(f"❌ ERROR: Invalid JSON in message body: {e}")
+        print(f"ERROR: Invalid JSON in message body: {e}")
         print(f"   Message body (first 200 chars): {str(message.get('Body', ''))[:200]}")
         print(f"   Deleting malformed message from queue...")
         # Delete the malformed message so it doesn't keep retrying
@@ -277,14 +277,14 @@ def process_message(message: dict):
                 QueueUrl=SQS_VIDEO_QUEUE_URL,
                 ReceiptHandle=receipt_handle
             )
-            print(f"   ✓ Deleted malformed message")
+            print(f"   SUCCESS: Deleted malformed message")
         except Exception as delete_error:
-            print(f"   ⚠️ Failed to delete message: {delete_error}")
+            print(f"   WARNING: Failed to delete message: {delete_error}")
         return  # Skip this message
     
     # Validate required fields
     if not all(key in body for key in ['job_id', 's3_bucket', 's3_key']):
-        print(f"❌ ERROR: Missing required fields in message. Got: {list(body.keys())}")
+        print(f"ERROR: Missing required fields in message. Got: {list(body.keys())}")
         print(f"   Expected: ['job_id', 's3_bucket', 's3_key']")
         # Delete the invalid message
         try:
@@ -292,9 +292,9 @@ def process_message(message: dict):
                 QueueUrl=SQS_VIDEO_QUEUE_URL,
                 ReceiptHandle=receipt_handle
             )
-            print(f"   ✓ Deleted invalid message")
+            print(f"   SUCCESS: Deleted invalid message")
         except Exception as delete_error:
-            print(f"   ⚠️ Failed to delete message: {delete_error}")
+            print(f"   WARNING: Failed to delete message: {delete_error}")
         return  # Skip this message
     
     job_id = body['job_id']
