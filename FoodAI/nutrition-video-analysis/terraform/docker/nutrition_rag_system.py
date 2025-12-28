@@ -3,6 +3,34 @@ Nutrition RAG System using FAISS
 Combines volume estimates with density and calorie databases to predict nutritional content
 """
 
+# CRITICAL FIX: Monkey patch cached_download for sentence-transformers compatibility
+# sentence-transformers 2.2.2 requires cached_download which was removed in huggingface_hub>=0.20.0
+try:
+    import huggingface_hub
+    if not hasattr(huggingface_hub, 'cached_download'):
+        # cached_download was removed in 0.20.0+, use hf_hub_download instead
+        def cached_download(repo_id, filename, cache_dir=None, force_download=False, resume_download=True, proxies=None, etag_timeout=10, local_files_only=False, token=None, revision=None, mirror=None, subfolder=None, **kwargs):
+            """Monkey patch: Map cached_download to hf_hub_download for compatibility"""
+            from huggingface_hub import hf_hub_download
+            return hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                cache_dir=cache_dir,
+                force_download=force_download,
+                resume_download=resume_download,
+                proxies=proxies,
+                etag_timeout=etag_timeout,
+                local_files_only=local_files_only,
+                token=token,
+                revision=revision,
+                subfolder=subfolder,
+                **kwargs
+            )
+        huggingface_hub.cached_download = cached_download
+        print("✅ Monkey patched cached_download for sentence-transformers compatibility")
+except Exception as e:
+    print(f"⚠️ Warning: Could not monkey patch cached_download: {e}")
+
 import json
 import numpy as np
 import pandas as pd
