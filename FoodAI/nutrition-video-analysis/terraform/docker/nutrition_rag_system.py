@@ -9,10 +9,13 @@ try:
     import huggingface_hub
     if not hasattr(huggingface_hub, 'cached_download'):
         # cached_download was removed in 0.20.0+, use hf_hub_download instead
-        # sentence-transformers calls it with **kwargs only (no positional args)
+        # sentence-transformers calls it with **kwargs, sometimes with 'url' instead of 'repo_id'/'filename'
         def cached_download(*args, **kwargs):
             """Monkey patch: Map cached_download to hf_hub_download for compatibility"""
             from huggingface_hub import hf_hub_download
+            import re
+            from urllib.parse import urlparse, unquote
+            
             # Extract repo_id and filename from args or kwargs
             if args:
                 repo_id = args[0] if len(args) > 0 else kwargs.get('repo_id')
@@ -21,12 +24,42 @@ try:
                 repo_id = kwargs.pop('repo_id', None)
                 filename = kwargs.pop('filename', None)
             
+            # If 'url' is provided instead, parse it to extract repo_id and filename
+            url = kwargs.pop('url', None)
+            if url and (repo_id is None or filename is None):
+                # Parse HuggingFace Hub URL: https://huggingface.co/{repo_id}/resolve/{revision}/{filename}
+                # or: https://huggingface.co/{repo_id}/resolve/main/{filename}
+                match = re.match(r'https://huggingface\.co/([^/]+)/resolve/([^/]+)/(.+)', url)
+                if match:
+                    repo_id = match.group(1)
+                    revision = match.group(2)
+                    filename = unquote(match.group(3))
+                    kwargs['revision'] = revision  # Set revision from URL
+                else:
+                    # Try alternative URL format
+                    match = re.match(r'https://huggingface\.co/([^/]+)/blob/([^/]+)/(.+)', url)
+                    if match:
+                        repo_id = match.group(1)
+                        revision = match.group(2)
+                        filename = unquote(match.group(3))
+                        kwargs['revision'] = revision
+            
             if repo_id is None or filename is None:
-                raise ValueError(f"cached_download requires 'repo_id' and 'filename'. Got args={args}, kwargs keys={list(kwargs.keys())}")
+                raise ValueError(f"cached_download requires 'repo_id' and 'filename' (or 'url'). Got args={args}, kwargs keys={list(kwargs.keys())}")
             
             # Map old cached_download params to hf_hub_download
-            # Remove 'mirror' as it's not supported in hf_hub_download
+            # Remove 'mirror' and other unsupported params
             kwargs.pop('mirror', None)
+            kwargs.pop('force_filename', None)
+            kwargs.pop('library_name', None)
+            kwargs.pop('library_version', None)
+            kwargs.pop('user_agent', None)
+            kwargs.pop('use_auth_token', None)  # Use 'token' instead
+            kwargs.pop('legacy_cache_layout', None)
+            
+            # Map use_auth_token to token if present
+            if 'use_auth_token' in kwargs:
+                kwargs['token'] = kwargs.pop('use_auth_token')
             
             return hf_hub_download(
                 repo_id=repo_id,
