@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     SAM2_CONFIG: str = "configs/sam2.1/sam2.1_hiera_b+.yaml"
     FLORENCE2_MODEL: str = "microsoft/Florence-2-base-ft"
     METRIC3D_MODEL: str = "metric3d_vit_small"
+    caption_type: str = "detailed_caption"  # Florence-2 caption task type
     
     # Tracking Settings
     DETECTION_INTERVAL: int = 30
