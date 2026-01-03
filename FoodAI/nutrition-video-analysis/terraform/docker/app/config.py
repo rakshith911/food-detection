@@ -25,19 +25,19 @@ class Settings(BaseSettings):
     # Video Processing
     MAX_VIDEO_SIZE_MB: int = 500
     ALLOWED_FORMATS: list = [".mp4", ".avi", ".mov", ".mkv"]
-    FRAME_SKIP: int = 10  # Process every Nth frame
-    MAX_FRAMES: Optional[int] = 60  # None = process all
+    FRAME_SKIP: int = 3  # Process every Nth frame (lowered from 10 to capture more frames)
+    MAX_FRAMES: Optional[int] = 100  # None = process all (increased from 60)
     RESIZE_WIDTH: int = 800
-    
+
     # Model Settings
     SAM2_CHECKPOINT: str = "checkpoints/sam2.1_hiera_base_plus.pt"
     SAM2_CONFIG: str = "configs/sam2.1/sam2.1_hiera_b+.yaml"
     FLORENCE2_MODEL: str = "microsoft/Florence-2-base-ft"
     METRIC3D_MODEL: str = "metric3d_vit_small"
     caption_type: str = "detailed_caption"  # Florence-2 caption task type
-    
+
     # Tracking Settings
-    DETECTION_INTERVAL: int = 30
+    DETECTION_INTERVAL: int = 5  # Re-detect every 5 frames (lowered from 30 for better coverage)
     IOU_MATCH_THRESHOLD: float = 0.20
     CENTER_DISTANCE_THRESHOLD: float = 200.0
     LABEL_SIMILARITY_BOOST: float = 0.20
