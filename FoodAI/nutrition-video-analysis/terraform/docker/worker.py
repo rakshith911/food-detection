@@ -45,6 +45,7 @@ import tempfile
 import traceback
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 
 import boto3
 
@@ -184,7 +185,6 @@ def process_media(media_path: str, job_id: str) -> dict:
         update_job_status(job_id, 'processing', progress=15)
 
         # Process media based on type
-        from pathlib import Path
         media_path_obj = Path(media_path)
 
         if is_image_file(media_path):
