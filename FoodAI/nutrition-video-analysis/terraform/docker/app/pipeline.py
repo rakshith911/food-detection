@@ -289,83 +289,66 @@ class NutritionVideoPipeline:
                         except Exception as e:
                             logger.warning(f"Could not add object ID{obj_id}: {e}")
             
-            # Process tracked objects (with or without SAM2 masks)
+            # Propagate SAM2 masks
             if tracked_objects:
-                # Try to get SAM2 masks
                 video_segments = {}
-                try:
-                    for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(inference_state):
-                        video_segments[out_frame_idx] = {
-                            out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
-                            for i, out_obj_id in enumerate(out_obj_ids)
-                        }
-                except Exception as e:
-                    logger.warning(f"SAM2 propagation failed: {e}, using bounding box fallback")
-                    video_segments = {}
-                
-                # Estimate depth once for all objects
-                depth_map_meters = self._estimate_depth_metric3d(frame, metric3d_model)
+                for out_frame_idx, out_obj_ids, out_mask_logits in video_predictor.propagate_in_video(inference_state):
+                    video_segments[out_frame_idx] = {
+                        out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
+                        for i, out_obj_id in enumerate(out_obj_ids)
+                    }
                 
                 # Get current frame's masks
                 relative_idx = frame_idx - current_window_start
-                has_sam2_masks = relative_idx in video_segments
-                
-                # Process all tracked objects (with or without SAM2 masks)
-                for obj_id, obj_data in tracked_objects.items():
-                    box = obj_data['box']
-                    label = obj_data['label']
+                if relative_idx in video_segments:
+                    # Estimate depth
+                    depth_map_meters = self._estimate_depth_metric3d(frame, metric3d_model)
                     
-                    # Use SAM2 mask if available, otherwise create mask from bounding box
-                    if has_sam2_masks and obj_id in video_segments[relative_idx]:
-                        mask = video_segments[relative_idx][obj_id][0]
-                    else:
-                        # Create approximate mask from bounding box
-                        x1, y1, x2, y2 = [int(v) for v in box]
-                        mask = np.zeros((frame.shape[0], frame.shape[1]), dtype=bool)
-                        mask[y1:y2, x1:x2] = True
-                        logger.info(f"[{job_id}] Using bounding box mask for object {obj_id} ({label})")
-                    
-                    # Calibrate if this is a plate
-                    if not self.calibration['calibrated'] and 'plate' in label.lower():
-                        self.calibration['pixels_per_cm'], _ = self._calibrate_from_plate(
-                            box, depth_map_meters, frame.shape[1]
-                        )
-                        self.calibration['calibrated'] = True
-                    
-                    # Fallback calibration if no plate detected (for single images or after first frame)
-                    if not self.calibration['calibrated']:
-                        logger.warning(f"[{job_id}] No plate detected - using default calibration")
-                        frame_width = frame.shape[1]
-                        # Assume 800px ≈ 50cm scene width as reasonable default
-                        self.calibration['pixels_per_cm'] = frame_width / 50.0
-                        self.calibration['calibrated'] = True
-                        logger.info(f"[{job_id}] Default calibration: {self.calibration['pixels_per_cm']:.2f} px/cm")
-                    
-                    # Calculate volume
-                    volume_metrics = self._calculate_volume_metric3d(
-                        mask, depth_map_meters, box, label
-                    )
-                    
-                    # Store in history
-                    if obj_id not in volume_history:
-                        volume_history[obj_id] = []
-                    
-                    volume_history[obj_id].append({
-                        'frame': frame_idx,
-                        'volume_ml': volume_metrics['volume_ml'],
-                        'height_cm': volume_metrics['avg_height_cm'],
-                        'area_cm2': volume_metrics['surface_area_cm2']
-                    })
-                    
-                    logger.info(f"[{job_id}] Object {obj_id} ({label}): volume={volume_metrics['volume_ml']:.1f}ml, area={volume_metrics['surface_area_cm2']:.1f}cm²")
-                    
-                    # Update tracked object box with SAM2's refined box if available
-                    if has_sam2_masks and obj_id in video_segments[relative_idx]:
-                        mask_coords = np.argwhere(mask)
-                        if len(mask_coords) > 0:
-                            y_min, x_min = mask_coords.min(axis=0)
-                            y_max, x_max = mask_coords.max(axis=0)
-                            tracked_objects[obj_id]['box'] = [x_min, y_min, x_max, y_max]
+                    # Calculate volumes
+                    for obj_id in video_segments[relative_idx]:
+                        if obj_id in tracked_objects:
+                            mask = video_segments[relative_idx][obj_id][0]
+                            box = tracked_objects[obj_id]['box']
+                            label = tracked_objects[obj_id]['label']
+                            
+                            # Calibrate if this is a plate
+                            if not self.calibration['calibrated'] and 'plate' in label.lower():
+                                self.calibration['pixels_per_cm'], _ = self._calibrate_from_plate(
+                                    box, depth_map_meters, frame.shape[1]
+                                )
+                                self.calibration['calibrated'] = True
+
+                        # Fallback calibration if no plate detected after first detection pass
+                        if not self.calibration['calibrated'] and frame_idx >= self.config.DETECTION_INTERVAL:
+                            logger.warning("No plate detected - using default calibration")
+                            frame_width = frame.shape[1]
+                            # Assume 800px ≈ 50cm scene width as reasonable default
+                            self.calibration['pixels_per_cm'] = frame_width / 50.0
+                            self.calibration['calibrated'] = True
+                            logger.info(f"Default calibration: {self.calibration['pixels_per_cm']:.2f} px/cm")
+                            
+                            # Calculate volume
+                            volume_metrics = self._calculate_volume_metric3d(
+                                mask, depth_map_meters, box, label
+                            )
+                            
+                            # Store in history
+                            if obj_id not in volume_history:
+                                volume_history[obj_id] = []
+                            
+                            volume_history[obj_id].append({
+                                'frame': frame_idx,
+                                'volume_ml': volume_metrics['volume_ml'],
+                                'height_cm': volume_metrics['avg_height_cm'],
+                                'area_cm2': volume_metrics['surface_area_cm2']
+                            })
+                            
+                            # Update tracked object box with SAM2's refined box
+                            mask_coords = np.argwhere(mask)
+                            if len(mask_coords) > 0:
+                                y_min, x_min = mask_coords.min(axis=0)
+                                y_max, x_max = mask_coords.max(axis=0)
+                                tracked_objects[obj_id]['box'] = [x_min, y_min, x_max, y_max]
         
         # Compile results
         results = {
@@ -374,7 +357,6 @@ class NutritionVideoPipeline:
         }
         
         for obj_id, obj_data in tracked_objects.items():
-            # Always include objects in results, even if volume calculation failed
             if obj_id in volume_history and len(volume_history[obj_id]) > 0:
                 history = volume_history[obj_id]
                 volumes = [h['volume_ml'] for h in history]
@@ -392,25 +374,6 @@ class NutritionVideoPipeline:
                         'num_frames': len(history)
                     }
                 }
-            else:
-                # Include object even without volume history (for nutrition analysis)
-                # Use bounding box area as fallback
-                box = obj_data['box']
-                box_area = (box[2] - box[0]) * (box[3] - box[1])
-                estimated_area_cm2 = box_area / (self.calibration.get('pixels_per_cm', 16.0) ** 2) if self.calibration.get('calibrated') else 0
-                
-                results['objects'][f"ID{obj_id}_{obj_data['label']}"] = {
-                    'label': obj_data['label'],
-                    'statistics': {
-                        'max_volume_ml': 0.0,
-                        'median_volume_ml': 0.0,
-                        'mean_volume_ml': 0.0,
-                        'max_height_cm': 0.0,
-                        'max_area_cm2': float(estimated_area_cm2),
-                        'num_frames': 1
-                    }
-                }
-                logger.warning(f"Object {obj_id} ({obj_data['label']}) has no volume history, using fallback values")
         
         logger.info(f"[{job_id}] Tracked {len(tracked_objects)} objects")
         return results
