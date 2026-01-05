@@ -131,8 +131,8 @@ class NutritionVideoPipeline:
             # Step 3: Analyze nutrition
             nutrition_results = self._analyze_nutrition(tracking_results, job_id)
 
-                # Step 4: Compile complete results
-                final_results = {
+            # Step 4: Compile complete results
+            final_results = {
                     'job_id': job_id,
                     'media_name': video_path.name,
                     'media_type': 'video',
