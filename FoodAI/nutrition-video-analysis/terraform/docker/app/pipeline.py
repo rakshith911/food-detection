@@ -20,7 +20,7 @@ class NutritionVideoPipeline:
     Complete pipeline for video-based nutrition analysis
     """
     
-        def __init__(self, model_manager, config):
+    def __init__(self, model_manager, config):
             """
             Initialize pipeline with models and configuration
             
