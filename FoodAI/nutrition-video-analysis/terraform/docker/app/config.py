@@ -25,19 +25,38 @@ class Settings(BaseSettings):
     # Video Processing
     MAX_VIDEO_SIZE_MB: int = 500
     ALLOWED_FORMATS: list = [".mp4", ".avi", ".mov", ".mkv"]
-    FRAME_SKIP: int = 5  # Process every Nth frame (balanced for CPU performance)
-    MAX_FRAMES: Optional[int] = 30  # Limit frames for CPU processing speed
+    FRAME_SKIP: int = 20  # Process every 20th frame (faster for 5 seconds: 60fps × 5sec / 20 = 15 frames)
+    MAX_FRAMES: Optional[int] = 15  # Limit to ~5 seconds of video at 60fps
     RESIZE_WIDTH: int = 800
+    
+    # General Calibration (fallback when no reference object detected)
+    DEFAULT_PIXELS_PER_CM: float = 16.0  # Default: 800px image ≈ 50cm scene width (800/50 = 16 px/cm)
+    DEFAULT_REFERENCE_PLANE_DEPTH_M: float = 0.5  # Default reference plane depth: 50cm (0.5m)
 
     # Model Settings
     SAM2_CHECKPOINT: str = "checkpoints/sam2.1_hiera_base_plus.pt"
     SAM2_CONFIG: str = "configs/sam2.1/sam2.1_hiera_b+.yaml"
-    FLORENCE2_MODEL: str = "microsoft/Florence-2-base-ft"
+    FLORENCE2_MODEL: str = "microsoft/Florence-2-large-ft"  # Use large model for better accuracy (heavier: ~3GB vs ~1GB)
     METRIC3D_MODEL: str = "metric3d_vit_small"
-    caption_type: str = "detailed_caption"  # Florence-2 caption task type
+    FLAN_T5_MODEL: str = "google/flan-t5-small"  # Small LLM for text formatting (~300MB)
+    caption_type: str = "vqa"  # Florence-2 task type: "caption", "detailed_caption", "more_detailed_caption", "object_detection", "hybrid_detection", "detailed_od", or "vqa" (Visual Question Answering - asks questions about food items)
+    
+    # VQA Configuration (if using VQA mode)
+    # Simple conversational question - works best with Florence-2
+    VQA_QUESTIONS: list = [
+        "What foods are here?"
+    ]  # Simple and natural - Gemini reformats the answer
+    
+    # Florence-2 Generation Parameters
+    FLORENCE2_MAX_NEW_TOKENS: int = 1024  # Maximum tokens (1024 is max for Florence-2)
+    FLORENCE2_NUM_BEAMS: int = 5  # Beam search for better quality (1-5, higher = better but slower) - increased to reduce hallucinations
+    FLORENCE2_DO_SAMPLE: bool = False  # Set to True for more diverse outputs (with temperature) - keep False to reduce hallucinations
+    FLORENCE2_TEMPERATURE: float = 0.7  # Only used if do_sample=True (higher = more creative)
+    FLORENCE2_MIN_LENGTH: int = 50  # Minimum caption length to encourage longer outputs
+    FLORENCE2_VQA_MIN_LENGTH: int = 20  # Minimum length for VQA answers (reduced to allow shorter, more accurate answers)
 
     # Tracking Settings
-    DETECTION_INTERVAL: int = 10  # Re-detect every 10 frames (balanced for CPU)
+    DETECTION_INTERVAL: int = 5  # Re-detect every 5 frames (more frequent for fewer total frames)
     IOU_MATCH_THRESHOLD: float = 0.20
     CENTER_DISTANCE_THRESHOLD: float = 200.0
     LABEL_SIMILARITY_BOOST: float = 0.20
@@ -48,6 +67,8 @@ class Settings(BaseSettings):
     
     # Nutrition Analysis
     REFERENCE_PLATE_DIAMETER_CM: float = 25.0
+    REFERENCE_BOWL_DIAMETER_CM: float = 20.0  # Typical bowl diameter (can vary)
+    REFERENCE_OBJECTS: list = ['plate', 'bowl', 'platter', 'dish']  # Objects that can be used for calibration
     DENSITY_PDF_PATH: Path = Path("/app/data/rag/ap815e.pdf")
     FNDDS_EXCEL_PATH: Path = Path("/app/data/rag/FNDDS.xlsx")
     COFID_EXCEL_PATH: Path = Path("/app/data/rag/CoFID.xlsx")
