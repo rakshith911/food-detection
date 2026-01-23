@@ -530,6 +530,7 @@ class NutritionVideoPipeline:
         
         # Compile results for ALL objects that have volume history (not just current tracked_objects)
         # This ensures we don't lose objects from previous SAM2 windows
+        objects_with_volume = set()
         for obj_id in volume_history.keys():
             history = volume_history[obj_id]
             if len(history) > 0:
@@ -557,8 +558,37 @@ class NutritionVideoPipeline:
                         'num_frames': len(history)
                     }
                 }
+                objects_with_volume.add(obj_id)
         
-        logger.info(f"[{job_id}] Tracked {len(results['objects'])} objects across all frames")
+        # Include ALL tracked objects, even if they don't have volume calculations
+        # This ensures items detected but without SAM2 masks/volumes are still included
+        for obj_id, obj_data in tracked_objects.items():
+            if obj_id not in objects_with_volume:
+                label = obj_data['label']
+                box = obj_data['box']
+                box_area = (box[2] - box[0]) * (box[3] - box[1])
+                
+                # Estimate volume from bounding box area (rough approximation)
+                # Assume average height of 2cm for items without depth data
+                estimated_height_cm = 2.0
+                estimated_volume_ml = (box_area / (self.calibration['pixels_per_cm'] ** 2)) * estimated_height_cm
+                
+                logger.warning(f"[{job_id}] Object ID{obj_id} ('{label}') detected but no volume calculated - using estimated volume {estimated_volume_ml:.1f}ml")
+                
+                results['objects'][f"ID{obj_id}_{label}"] = {
+                    'label': label,
+                    'statistics': {
+                        'max_volume_ml': float(estimated_volume_ml),
+                        'median_volume_ml': float(estimated_volume_ml),
+                        'mean_volume_ml': float(estimated_volume_ml),
+                        'max_height_cm': float(estimated_height_cm),
+                        'max_area_cm2': float(box_area / (self.calibration['pixels_per_cm'] ** 2)),
+                        'num_frames': 1,
+                        'estimated': True  # Flag to indicate this is an estimate
+                    }
+                }
+        
+        logger.info(f"[{job_id}] Tracked {len(results['objects'])} objects across all frames ({len(objects_with_volume)} with calculated volumes, {len(results['objects']) - len(objects_with_volume)} with estimated volumes)")
         results['total_objects'] = len(results['objects'])
         return results
     
@@ -1509,7 +1539,13 @@ class NutritionVideoPipeline:
         logger.info(f"[{job_id}] Frame {frame_idx}: Saved {len(masks_dict)} segmentation masks to {masks_dir}")
     
     def _upload_segmented_images_to_s3(self, job_id: str, masks_dir: Path, overlay_dir: Path, frame_idx: int):
-        """Upload segmented images (masks and overlays) to S3 for later retrieval"""
+        """
+        Upload segmented images (masks and overlays) to S3 for later retrieval.
+        
+        Structure:
+        - For images: segmented_images/{job_id}/frame_00000/masks/ and overlays/
+        - For videos: segmented_images/{job_id}/frame_00000/, frame_00001/, etc.
+        """
         global s3_client
         
         if not S3_RESULTS_BUCKET:
@@ -1521,30 +1557,40 @@ class NutritionVideoPipeline:
             if s3_client is None:
                 s3_client = boto3.client('s3')
             
+            uploaded_count = 0
+            frame_folder = f"frame_{frame_idx:05d}"
+            
             # Upload individual mask files
-            for mask_file in masks_dir.glob(f"frame_{frame_idx:05d}_*.png"):
-                s3_key = f"segmented_images/{job_id}/masks/{mask_file.name}"
+            # Structure: segmented_images/{job_id}/frame_XXXXX/masks/mask_file.png
+            mask_files = list(masks_dir.glob(f"frame_{frame_idx:05d}_*.png"))
+            for mask_file in mask_files:
+                # Extract just the filename (without the frame prefix since it's in the folder name)
+                mask_filename = mask_file.name
+                s3_key = f"segmented_images/{job_id}/{frame_folder}/masks/{mask_filename}"
                 s3_client.upload_file(
                     str(mask_file),
                     S3_RESULTS_BUCKET,
                     s3_key,
                     ExtraArgs={'ContentType': 'image/png'}
                 )
-                logger.debug(f"[{job_id}] Uploaded mask to s3://{S3_RESULTS_BUCKET}/{s3_key}")
+                uploaded_count += 1
+                logger.info(f"[{job_id}] Uploaded mask to s3://{S3_RESULTS_BUCKET}/{s3_key}")
             
             # Upload overlay file
+            # Structure: segmented_images/{job_id}/frame_XXXXX/overlays/all_masks.png
             overlay_file = overlay_dir / f"frame_{frame_idx:05d}_all_masks.png"
             if overlay_file.exists():
-                s3_key = f"segmented_images/{job_id}/overlays/{overlay_file.name}"
+                s3_key = f"segmented_images/{job_id}/{frame_folder}/overlays/all_masks.png"
                 s3_client.upload_file(
                     str(overlay_file),
                     S3_RESULTS_BUCKET,
                     s3_key,
                     ExtraArgs={'ContentType': 'image/png'}
                 )
-                logger.debug(f"[{job_id}] Uploaded overlay to s3://{S3_RESULTS_BUCKET}/{s3_key}")
+                uploaded_count += 1
+                logger.info(f"[{job_id}] Uploaded overlay to s3://{S3_RESULTS_BUCKET}/{s3_key}")
             
-            logger.info(f"[{job_id}] Frame {frame_idx}: Uploaded segmented images to S3")
+            logger.info(f"[{job_id}] Frame {frame_idx}: Uploaded {uploaded_count} segmented images to S3 (bucket: {S3_RESULTS_BUCKET}, path: segmented_images/{job_id}/{frame_folder}/)")
             
         except Exception as e:
             logger.error(f"[{job_id}] Failed to upload segmented images to S3: {e}", exc_info=True)
