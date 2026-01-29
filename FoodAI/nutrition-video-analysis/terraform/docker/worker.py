@@ -528,6 +528,10 @@ def download_models_from_s3():
         ('checkpoints/sam2.1_hiera_tiny.pt', '/app/checkpoints/sam2.1_hiera_tiny.pt'),
         ('gdino_checkpoints/groundingdino_swint_ogc.pth', '/app/gdino_checkpoints/groundingdino_swint_ogc.pth'),
         ('gdino_checkpoints/groundingdino_swinb_cogcoor.pth', '/app/gdino_checkpoints/groundingdino_swinb_cogcoor.pth'),
+        # RAG data files for nutrition analysis
+        ('rag/ap815e.pdf', '/app/data/rag/ap815e.pdf'),
+        ('rag/FNDDS.xlsx', '/app/data/rag/FNDDS.xlsx'),
+        ('rag/CoFID.xlsx', '/app/data/rag/CoFID.xlsx'),
     ]
     
     print(f"Downloading models from s3://{S3_MODELS_BUCKET}...")

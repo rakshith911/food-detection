@@ -30,37 +30,7 @@
   # =============================================================================
   # VARIABLES
   # =============================================================================
-
-  variable "aws_region" {
-    description = "AWS region"
-    type        = string
-    default     = "us-east-1"
-  }
-
-  variable "project_name" {
-    description = "Project name"
-    type        = string
-    default     = "nutrition-video-analysis"
-  }
-
-  variable "environment" {
-    description = "Environment"
-    type        = string
-    default     = "dev"
-  }
-
-  variable "gemini_api_key" {
-    description = "Gemini API key"
-    type        = string
-    default     = ""
-    sensitive   = true
-  }
-
-  variable "notification_email" {
-    description = "Email for notifications"
-    type        = string
-    default     = "admin@example.com"
-  }
+  # Variables are defined in variables.tf
 
   # =============================================================================
   # LOCALS AND RANDOM
@@ -87,6 +57,43 @@
     description             = "KMS key for ${local.name_prefix}"
     deletion_window_in_days = 7
     enable_key_rotation     = true
+
+    # Key policy to allow IAM policies to grant access
+    policy = jsonencode({
+      Version = "2012-10-17"
+      Id      = "key-policy"
+      Statement = [
+        {
+          Sid    = "Enable IAM User Permissions"
+          Effect = "Allow"
+          Principal = {
+            AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+          }
+          Action   = "kms:*"
+          Resource = "*"
+        },
+        {
+          Sid    = "Allow ECS Task Role"
+          Effect = "Allow"
+          Principal = {
+            AWS = "*"
+          }
+          Action = [
+            "kms:Encrypt",
+            "kms:Decrypt",
+            "kms:ReEncrypt*",
+            "kms:GenerateDataKey*",
+            "kms:DescribeKey"
+          ]
+          Resource = "*"
+          Condition = {
+            StringEquals = {
+              "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+            }
+          }
+        }
+      ]
+    })
 
     tags = {
       Name = "${local.name_prefix}-kms-key"
@@ -315,6 +322,17 @@
             "${aws_s3_bucket.videos.arn}/*",
             "${aws_s3_bucket.results.arn}/*",
             "${aws_s3_bucket.models.arn}/*"
+          ]
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "s3:ListBucket"
+          ]
+          Resource = [
+            aws_s3_bucket.videos.arn,
+            aws_s3_bucket.results.arn,
+            aws_s3_bucket.models.arn
           ]
         },
         {
@@ -1082,6 +1100,7 @@
           { name = "SQS_VIDEO_QUEUE_URL", value = aws_sqs_queue.video_processing.url },
           { name = "AWS_REGION", value = var.aws_region },
           { name = "DEVICE", value = "cpu" },  # Change to "cuda" for GPU instances
+          { name = "UPLOAD_SEGMENTED_IMAGES", value = "true" },  # Save segmentation masks/overlays to results bucket
           { name = "FORCE_IMAGE_PULL", value = timestamp() }  # Force task definition update to pull fresh image
         ]
 

@@ -36,6 +36,7 @@ resource "aws_ecs_task_definition" "video_processor_gpu" {
         { name = "SQS_VIDEO_QUEUE_URL", value = aws_sqs_queue.video_processing.url },
         { name = "AWS_REGION", value = var.aws_region },
         { name = "DEVICE", value = var.device_type },  # "cuda" for GPU
+        { name = "UPLOAD_SEGMENTED_IMAGES", value = "true" },  # Save segmentation masks/overlays to results bucket
         { name = "FORCE_IMAGE_PULL", value = timestamp() }
       ]
 

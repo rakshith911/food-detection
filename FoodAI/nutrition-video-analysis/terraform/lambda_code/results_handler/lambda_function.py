@@ -1,9 +1,11 @@
 import json
 import os
 import boto3
+from botocore.config import Config
 from decimal import Decimal
 
-s3 = boto3.client('s3')
+# Use Signature Version 4 for KMS-encrypted S3 objects
+s3 = boto3.client('s3', config=Config(signature_version='s3v4'))
 dynamodb = boto3.resource('dynamodb')
 
 S3_RESULTS_BUCKET = os.environ.get('S3_RESULTS_BUCKET')
@@ -121,6 +123,68 @@ def lambda_handler(event, context):
             result['download_url'] = download_url
         except Exception:
             pass  # Skip if can't generate URL
+
+        # Always generate presigned URLs for segmented images (new feature)
+        # This allows frontend to display segmentation overlays
+        try:
+            segmented_prefix = f'segmented_images/{job_id}/'
+            segmented_objects = s3.list_objects_v2(
+                Bucket=S3_RESULTS_BUCKET,
+                Prefix=segmented_prefix,
+                MaxKeys=100  # Limit to avoid timeout
+            )
+            
+            if 'Contents' in segmented_objects and len(segmented_objects['Contents']) > 0:
+                segmented_images = {
+                    'overlay_urls': [],
+                    'mask_urls': []
+                }
+                
+                for obj in segmented_objects['Contents']:
+                    key = obj['Key']
+                    try:
+                        # Generate presigned URL for each segmented image
+                        presigned_url = s3.generate_presigned_url(
+                            'get_object',
+                            Params={
+                                'Bucket': S3_RESULTS_BUCKET,
+                                'Key': key
+                            },
+                            ExpiresIn=3600  # 1 hour
+                        )
+                        
+                        # Extract frame number from path: segmented_images/{job_id}/frame_XXXXX/...
+                        frame_match = None
+                        if '/frame_' in key:
+                            parts = key.split('/frame_')
+                            if len(parts) > 1:
+                                frame_match = parts[1].split('/')[0]
+                        
+                        if 'overlays' in key and 'all_masks.png' in key:
+                            segmented_images['overlay_urls'].append({
+                                'frame': frame_match or '00000',
+                                'url': presigned_url,
+                                'key': key,
+                                'type': 'overlay'
+                            })
+                        elif 'masks' in key and key.endswith('.png'):
+                            segmented_images['mask_urls'].append({
+                                'frame': frame_match or '00000',
+                                'url': presigned_url,
+                                'key': key,
+                                'type': 'mask',
+                                'object_id': key.split('_obj_')[1].split('_')[0] if '_obj_' in key else None
+                            })
+                    except Exception as e:
+                        print(f"Warning: Could not generate URL for {key}: {e}")
+                        continue
+                
+                if segmented_images['overlay_urls'] or segmented_images['mask_urls']:
+                    result['segmented_images'] = segmented_images
+                    print(f"Added {len(segmented_images['overlay_urls'])} overlays and {len(segmented_images['mask_urls'])} masks")
+        except Exception as e:
+            print(f"Warning: Could not generate segmented image URLs: {e}")
+            # Don't fail if segmented images can't be listed
 
         return {
             'statusCode': 200,

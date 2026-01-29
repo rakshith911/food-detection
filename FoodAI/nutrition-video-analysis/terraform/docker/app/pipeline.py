@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Initialize S3 client for uploading segmented images
 s3_client = None
 S3_RESULTS_BUCKET = os.environ.get('S3_RESULTS_BUCKET')
+UPLOAD_SEGMENTED_IMAGES = (os.environ.get('UPLOAD_SEGMENTED_IMAGES', 'true')).strip().lower() == 'true'
 
 
 class NutritionVideoPipeline:
@@ -38,8 +39,13 @@ class NutritionVideoPipeline:
             """
             self.models = model_manager
             self.config = config
-            self.device = config.DEVICE
-            
+            # Use CPU when CUDA is requested but not available (e.g. on Mac / CPU-only PyTorch)
+            if config.DEVICE == "cuda" and not torch.cuda.is_available():
+                self.device = "cpu"
+                logger.info("Pipeline: CUDA not available - using CPU for depth/tensors")
+            else:
+                self.device = config.DEVICE
+
             # Task prompts for Florence-2
             self.TASK_PROMPTS = {
                 "caption": "<CAPTION>",
@@ -146,8 +152,8 @@ class NutritionVideoPipeline:
 
             logger.info(f"[{job_id}] Loaded {len(frames)} frames")
 
-            # Step 2: Run tracking pipeline with depth
-            tracking_results = self._run_tracking_pipeline(frames, job_id)
+            # Step 2: Run tracking pipeline with depth (pass video_path for one-shot Gemini video)
+            tracking_results = self._run_tracking_pipeline(frames, job_id, video_path=video_path)
 
             # Step 3: Analyze nutrition
             nutrition_results = self._analyze_nutrition(tracking_results, job_id)
@@ -212,17 +218,39 @@ class NutritionVideoPipeline:
         cap.release()
         return frames
     
-    def _run_tracking_pipeline(self, frames: List[np.ndarray], job_id: str) -> Dict:
+    def _run_tracking_pipeline(self, frames: List[np.ndarray], job_id: str, video_path: Optional[Path] = None) -> Dict:
         """
-        Run complete tracking pipeline with depth estimation
+        Run complete tracking pipeline with depth estimation.
+        When video_path is set and USE_GEMINI_VIDEO_DETECTION, runs one Gemini video call for the whole clip.
         
         Returns:
             Dict with tracked objects and volume measurements
         """
         logger.info(f"[{job_id}] Running tracking pipeline...")
         
-        # Get models
-        florence_processor, florence_model = self.models.florence2
+        # Video: one-shot Gemini video only (no frame-wise detection). Image: frame-wise Gemini/Florence as needed.
+        initial_video_detections = None
+        use_video_detection = False
+        is_video_one_shot_mode = (
+            video_path is not None
+            and self.config.USE_GEMINI_DETECTION
+            and getattr(self.config, "USE_GEMINI_VIDEO_DETECTION", True)
+            and len(frames) > 1
+        )
+        if is_video_one_shot_mode:
+            print("🎬 One-shot Gemini video detection for whole clip (no frame-wise detection)...")
+            sys.stdout.flush()
+            initial_video_detections = self._detect_objects_gemini_video(video_path, job_id)
+            if initial_video_detections is not None:
+                use_video_detection = True
+                logger.info(f"[{job_id}] Using Gemini video detections for frame 0 only (one-shot only)")
+            else:
+                logger.warning(f"[{job_id}] Gemini video one-shot failed; continuing with no detections (no frame-wise fallback)")
+        
+        # Get models (Florence only when not using Gemini for detection)
+        florence_processor, florence_model = None, None
+        if not self.config.USE_GEMINI_DETECTION:
+            florence_processor, florence_model = self.models.florence2
         video_predictor = self.models.sam2
         metric3d_model = self.models.metric3d
         
@@ -237,7 +265,6 @@ class NutritionVideoPipeline:
         
         # Initialize SAM2 inference state
         print("📦 Initializing SAM2 inference state...")
-        import sys
         sys.stdout.flush()
         try:
             inference_state = video_predictor.init_state(video_path=str(frame_dir))
@@ -274,31 +301,70 @@ class NutritionVideoPipeline:
                 
                 # Periodic re-detection
                 if frame_idx % self.config.DETECTION_INTERVAL == 0:
-                    logger.info(f"[{job_id}] Frame {frame_idx}: Re-detecting objects...")
-                    print(f"🔍 Detecting objects in frame {frame_idx}... (this may take 30-60 seconds on CPU)")
-                    sys.stdout.flush()
-                    
-                    try:
-                        # Detect objects
-                        boxes, labels, detected_caption, unquantified_ingredients = self._detect_objects_florence(
-                            frame_pil, florence_processor, florence_model
-                        )
-                        # Store caption for results (use the latest caption if multiple detections)
+                    # Video: one-shot only — use precomputed detections at frame 0; never run frame-wise Gemini
+                    detection_grams_list = []
+                    if is_video_one_shot_mode and (frame_idx > 0 or initial_video_detections is None):
+                        boxes = np.array([])
+                        labels = []
+                        detected_caption = None
+                        unquantified_ingredients = []
+                        if frame_idx > 0:
+                            logger.info(f"[{job_id}] Frame {frame_idx}: Skipping re-detection (one-shot video only)")
+                        else:
+                            logger.info(f"[{job_id}] Frame 0: One-shot video had no detections (no frame-wise fallback)")
+                    elif use_video_detection and frame_idx == 0 and initial_video_detections is not None:
+                        boxes_ref, labels, detected_caption, detection_grams_list = initial_video_detections
+                        unquantified_ingredients = []
+                        if not detection_grams_list:
+                            detection_grams_list = [None] * len(labels)
+                        # Scale boxes from 1280x720 to actual frame size
+                        h, w = frame.shape[:2]
+                        scale_x = w / self._GEMINI_VIDEO_REF_W
+                        scale_y = h / self._GEMINI_VIDEO_REF_H
+                        boxes = np.array(boxes_ref, dtype=np.float32)
+                        if len(boxes) > 0:
+                            boxes[:, [0, 2]] *= scale_x
+                            boxes[:, [1, 3]] *= scale_y
+                            boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, w)
+                            boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, h)
                         if detected_caption:
                             caption = detected_caption
-                        print(f"✓ Detection complete: found {len(boxes)} objects")
+                        print(f"✓ Using one-shot Gemini video detections: {len(labels)} objects")
                         sys.stdout.flush()
-                    except Exception as e:
-                        print(f"❌ Detection failed: {e}")
-                        import traceback
-                        traceback.print_exc()
+                        logger.info(f"[{job_id}] Frame {frame_idx}: Gemini video (one-shot) {len(boxes)} objects: {labels}")
+                    else:
+                        # Image or video without one-shot: frame-wise detection (Gemini image or Florence-2)
+                        detection_grams_list = []
+                        logger.info(f"[{job_id}] Frame {frame_idx}: Re-detecting objects...")
+                        if self.config.USE_GEMINI_DETECTION:
+                            print(f"🔍 Detecting objects in frame {frame_idx} (Gemini image understanding)...")
+                        else:
+                            print(f"🔍 Detecting objects in frame {frame_idx}... (this may take 30-60 seconds on CPU)")
                         sys.stdout.flush()
-                        raise
+                        try:
+                            if self.config.USE_GEMINI_DETECTION:
+                                boxes, labels, detected_caption, unquantified_ingredients, detection_grams_list = self._detect_objects_gemini(
+                                    frame_pil, job_id
+                                )
+                            else:
+                                boxes, labels, detected_caption, unquantified_ingredients = self._detect_objects_florence(
+                                    frame_pil, florence_processor, florence_model
+                                )
+                                detection_grams_list = []
+                            if detected_caption:
+                                caption = detected_caption
+                            print(f"✓ Detection complete: found {len(boxes)} objects")
+                            sys.stdout.flush()
+                        except Exception as e:
+                            print(f"❌ Detection failed: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            sys.stdout.flush()
+                            raise
+                        logger.info(f"[{job_id}] Frame {frame_idx}: Detected {len(boxes)} objects: {labels}")
                     
-                    logger.info(f"[{job_id}] Frame {frame_idx}: Florence-2 detected {len(boxes)} objects: {labels}")
-                    
-                    # Use Gemini to format VQA answer and filter non-food items in one call (optimized)
-                    if self.config.GEMINI_API_KEY and len(labels) > 0:
+                    # Use Gemini to format VQA answer and filter non-food items (only when using Florence-2)
+                    if not self.config.USE_GEMINI_DETECTION and self.config.GEMINI_API_KEY and len(labels) > 0:
                         filtered_boxes, filtered_labels, formatted_answer = self._format_and_filter_with_gemini(
                             boxes, labels, detected_caption, job_id, frame_idx
                         )
@@ -308,7 +374,7 @@ class NutritionVideoPipeline:
                             detected_caption = formatted_answer  # Update caption with formatted version
                         logger.info(f"[{job_id}] Frame {frame_idx}: After Gemini filtering: {len(boxes)} food items: {labels}")
                     
-                    # Store Florence-2 detection results for debugging
+                    # Store detection results for debugging (Gemini or Florence-2)
                     detection_info = {
                         'frame_idx': frame_idx,
                         'caption': caption,
@@ -402,13 +468,16 @@ class NutritionVideoPipeline:
                             
                             color = np.random.randint(0, 255, size=3, dtype=np.uint8)
                             colors[obj_id] = color
-                            
+                            gemini_grams = None
+                            if detection_grams_list and new_idx < len(detection_grams_list) and detection_grams_list[new_idx] is not None:
+                                gemini_grams = float(detection_grams_list[new_idx])
                             tracked_objects[obj_id] = {
                                 'box': boxes[new_idx],
                                 'label': labels[new_idx],
                                 'color': color,
                                 'first_seen_frame': frame_idx,
-                                'last_seen_frame': frame_idx
+                                'last_seen_frame': frame_idx,
+                                'gemini_grams': gemini_grams
                             }
                             
                             boxes_to_add.append(boxes[new_idx])
@@ -569,6 +638,11 @@ class NutritionVideoPipeline:
                 max_area = float(max(areas))
                 max_diameter = float(max(diameters)) if diameters else 0.0
                 
+                gemini_grams_g = None
+                if obj_id in tracked_objects:
+                    g = tracked_objects[obj_id].get('gemini_grams')
+                    if g is not None and g > 0:
+                        gemini_grams_g = float(g)
                 # Store for batch validation
                 items_for_validation.append({
                     'obj_id': obj_id,
@@ -579,7 +653,8 @@ class NutritionVideoPipeline:
                     'diameter_cm': max_diameter,
                     'volumes': volumes,
                     'heights': heights,
-                    'areas': areas
+                    'areas': areas,
+                    'gemini_grams_g': gemini_grams_g
                 })
                 
                 objects_with_volume.add(obj_id)
@@ -593,11 +668,14 @@ class NutritionVideoPipeline:
                 box = obj_data['box']
                 box_area = (box[2] - box[0]) * (box[3] - box[1])
                 area_cm2 = box_area / (self.calibration['pixels_per_cm'] ** 2)
+                g = obj_data.get('gemini_grams')
+                gemini_grams_g = float(g) if g is not None and g > 0 else None
                 untracked_items.append({
                     'obj_id': obj_id,
                     'label': label,
                     'area_cm2': area_cm2,
-                    'box': box
+                    'box': box,
+                    'gemini_grams_g': gemini_grams_g
                 })
         
         # Batch process: Validate calculated volumes + Estimate untracked volumes in ONE Gemini call
@@ -621,17 +699,17 @@ class NutritionVideoPipeline:
             if validated_volume != item['calculated_volume_ml']:
                 logger.info(f"[{job_id}] ✓ Gemini adjusted volume for '{label}': {item['calculated_volume_ml']:.1f}ml → {validated_volume:.1f}ml")
             
-            results['objects'][f"ID{obj_id}_{label}"] = {
-                'label': label,
-                'statistics': {
-                    'max_volume_ml': float(validated_volume),
-                    'median_volume_ml': float(np.median(item['volumes'])),
-                    'mean_volume_ml': float(np.mean(item['volumes'])),
-                    'max_height_cm': float(max(item['heights'])),
-                    'max_area_cm2': float(max(item['areas'])),
-                    'num_frames': len(item['volumes'])
-                }
+            stats = {
+                'max_volume_ml': float(validated_volume),
+                'median_volume_ml': float(np.median(item['volumes'])),
+                'mean_volume_ml': float(np.mean(item['volumes'])),
+                'max_height_cm': float(max(item['heights'])),
+                'max_area_cm2': float(max(item['areas'])),
+                'num_frames': len(item['volumes'])
             }
+            if item.get('gemini_grams_g') is not None and item['gemini_grams_g'] > 0:
+                stats['gemini_grams_g'] = float(item['gemini_grams_g'])
+            results['objects'][f"ID{obj_id}_{label}"] = {'label': label, 'statistics': stats}
         
         # Add untracked items with estimated volumes to results
         for item in untracked_items:
@@ -642,19 +720,19 @@ class NutritionVideoPipeline:
             
             logger.info(f"[{job_id}] Object ID{obj_id} ('{label}') detected but no volume calculated - using estimated volume {estimated_volume_ml:.1f}ml")
             
-            results['objects'][f"ID{obj_id}_{label}"] = {
-                'label': label,
-                'statistics': {
-                    'max_volume_ml': float(estimated_volume_ml),
-                    'median_volume_ml': float(estimated_volume_ml),
-                    'mean_volume_ml': float(estimated_volume_ml),
-                    'max_height_cm': 2.0,  # Default estimate
-                    'max_area_cm2': float(area_cm2),
-                    'num_frames': 1,
-                    'estimated': True,  # Flag to indicate this is an estimate
-                    'estimation_method': 'gemini' if self.config.GEMINI_API_KEY else 'fallback'
-                }
+            stats = {
+                'max_volume_ml': float(estimated_volume_ml),
+                'median_volume_ml': float(estimated_volume_ml),
+                'mean_volume_ml': float(estimated_volume_ml),
+                'max_height_cm': 2.0,  # Default estimate
+                'max_area_cm2': float(area_cm2),
+                'num_frames': 1,
+                'estimated': True,  # Flag to indicate this is an estimate
+                'estimation_method': 'gemini' if self.config.GEMINI_API_KEY else 'fallback'
             }
+            if item.get('gemini_grams_g') is not None and item['gemini_grams_g'] > 0:
+                stats['gemini_grams_g'] = float(item['gemini_grams_g'])
+            results['objects'][f"ID{obj_id}_{label}"] = {'label': label, 'statistics': stats}
         
         logger.info(f"[{job_id}] Tracked {len(results['objects'])} objects across all frames ({len(objects_with_volume)} with calculated volumes, {len(results['objects']) - len(objects_with_volume)} with estimated volumes)")
         results['total_objects'] = len(results['objects'])
@@ -744,8 +822,237 @@ class NutritionVideoPipeline:
         
         return result
     
+    def _detect_objects_gemini(self, image_pil, job_id: str):
+        """
+        Detect food objects using Gemini image understanding (same structure as gemini/test_gemini_analysis).
+        Returns (boxes, labels, caption, unquantified_ingredients) for pipeline compatibility.
+        """
+        import sys
+        sys.stdout.flush()
+        if not self.config.GEMINI_API_KEY:
+            logger.warning("[Gemini detection] GEMINI_API_KEY not set; returning no detections")
+            return np.array([]), [], "", [], []
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=self.config.GEMINI_API_KEY)
+        except Exception as e:
+            logger.warning(f"[Gemini detection] Failed to init Gemini: {e}")
+            return np.array([]), [], "", [], []
+        img_width, img_height = image_pil.size
+        prompt = (
+            "Analyze this food image in detail. Provide a comprehensive analysis including:\n"
+            "1. MAIN DISH/FOOD ITEM: Primary food name, cuisine type, cooking method.\n"
+            "2. VISIBLE INGREDIENTS WITH LOCATIONS: List all visible ingredients/components (garnishes, sides, sauces). "
+            "For each visible food item provide bounding box [x_min, y_min, x_max, y_max] and estimated_quantity_grams.\n"
+            f"Image dimensions: {img_width} x {img_height} pixels. Bounding boxes in pixels (0 to width/height).\n"
+            "estimated_quantity_grams: edible mass in grams for the VISIBLE PORTION ONLY. Base it on relative size in the image: "
+            "smaller region = fewer grams. Use realistic typical weights (e.g. one fish fillet 80–120g, sauce 40–80g, beans/side 100–200g). "
+            "Each item must have a DIFFERENT value reflecting its apparent portion size; do not repeat the same value for all items.\n"
+            "3. INGREDIENT BREAKDOWN, 4. NUTRITIONAL INFORMATION, 5. ADDITIONAL NOTES.\n\n"
+            "Format as JSON: main_food_item, cuisine_type, cooking_method, "
+            "visible_ingredients (array of {name, bounding_box [x_min,y_min,x_max,y_max], estimated_quantity_grams}), "
+            "ingredient_breakdown, nutritional_info, allergens, dietary_tags, additional_notes.\n"
+            "Example: [{\"name\": \"fish fillet\", \"bounding_box\": [100,50,300,250], \"estimated_quantity_grams\": 95}, {\"name\": \"sauce\", \"bounding_box\": [50,400,200,500], \"estimated_quantity_grams\": 55}]. "
+            "Output only valid JSON (you may wrap in ```json)."
+        )
+        # Try multiple models (404 if model name not available in this API version)
+        gemini_models_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp", "gemini-pro-vision"]
+        response_text = ""
+        for model_name in gemini_models_try:
+            try:
+                print(f"  → Calling Gemini for food detection ({model_name})...")
+                sys.stdout.flush()
+                gemini_model = genai.GenerativeModel(model_name)
+                response = gemini_model.generate_content([prompt, image_pil])
+                response_text = response.text or ""
+                if response_text:
+                    break
+            except Exception as e:
+                logger.warning(f"[Gemini detection] {model_name} failed: {e}")
+                continue
+        if not response_text:
+            logger.warning("[Gemini detection] All models failed; returning no detections")
+            return np.array([]), [], "", [], []
+        # Parse JSON from response
+        try:
+            if "```json" in response_text:
+                json_start = response_text.find("```json") + 7
+                json_end = response_text.find("```", json_start)
+                json_str = response_text[json_start:json_end].strip()
+            elif "```" in response_text:
+                json_start = response_text.find("```") + 3
+                json_end = response_text.find("```", json_start)
+                json_str = response_text[json_start:json_end].strip()
+            else:
+                json_start = response_text.find("{")
+                json_end = response_text.rfind("}") + 1
+                json_str = response_text[json_start:json_end] if json_start >= 0 else ""
+            if not json_str:
+                return np.array([]), [], "", [], []
+            data = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            logger.warning(f"[Gemini detection] JSON parse failed: {e}")
+            return np.array([]), [], "", [], []
+        visible = data.get("visible_ingredients") or []
+        boxes = []
+        labels = []
+        grams_list = []
+        for ing in visible:
+            bbox = ing.get("bounding_box")
+            name = (ing.get("name") or "").strip()
+            if not name or not bbox or len(bbox) != 4:
+                continue
+            x_min, y_min, x_max, y_max = bbox
+            x_min = max(0, min(float(x_min), img_width))
+            y_min = max(0, min(float(y_min), img_height))
+            x_max = max(0, min(float(x_max), img_width))
+            y_max = max(0, min(float(y_max), img_height))
+            if x_max <= x_min or y_max <= y_min:
+                continue
+            g = ing.get("estimated_quantity_grams")
+            try:
+                grams_list.append(float(g) if g is not None else None)
+            except (TypeError, ValueError):
+                grams_list.append(None)
+            boxes.append([x_min, y_min, x_max, y_max])
+            labels.append(name)
+        caption = data.get("main_food_item") or ""
+        if data.get("additional_notes"):
+            caption = f"{caption}. {data['additional_notes']}" if caption else data["additional_notes"]
+        boxes = np.array(boxes, dtype=np.float32) if boxes else np.array([])
+        print(f"  ✓ Gemini detection: {len(labels)} objects")
+        sys.stdout.flush()
+        return boxes, labels, caption, [], grams_list
+    
+    # Reference resolution for Gemini video bounding boxes (prompt asks for 1280x720)
+    _GEMINI_VIDEO_REF_W = 1280
+    _GEMINI_VIDEO_REF_H = 720
+    _GEMINI_VIDEO_INLINE_LIMIT = 20 * 1024 * 1024  # 20 MB
+    
+    def _detect_objects_gemini_video(self, video_path: Path, job_id: str):
+        """
+        One-shot Gemini video understanding: call Gemini video API once for the whole clip.
+        Returns (boxes, labels, caption) with boxes in reference resolution 1280x720
+        so the pipeline can scale them to the actual frame size.
+        """
+        import sys
+        sys.stdout.flush()
+        if not self.config.GEMINI_API_KEY:
+            logger.warning("[Gemini video] GEMINI_API_KEY not set")
+            return None
+        video_path = Path(video_path)
+        if not video_path.exists():
+            logger.warning(f"[Gemini video] File not found: {video_path}")
+            return None
+        prompt = (
+            "Analyze this video from a food and nutrition perspective. Describe what is shown: meals, dishes, ingredients.\n"
+            "Format the response as structured JSON with: main_food_item, cuisine_type, cooking_method, "
+            "visible_ingredients (list of objects with: name, bounding_box [x_min, y_min, x_max, y_max] for a representative frame at 1280x720, estimated_quantity_grams, timestamp_seconds or time_range), "
+            "ingredient_breakdown, nutritional_info, allergens, dietary_tags, additional_notes.\n"
+            "Bounding boxes: [x_min, y_min, x_max, y_max] in pixels; frame size 1280x720.\n"
+            "estimated_quantity_grams: edible mass in grams for the VISIBLE PORTION of that item only. Base it on relative size on screen: "
+            "smaller region = fewer grams. Use realistic typical weights (e.g. one fish fillet 80–120g, sauce 40–80g, beans/side 100–200g). "
+            "Each item must have a DIFFERENT value reflecting its apparent portion size; do not use the same value for every item.\n"
+            "Example: [{\"name\": \"fish fillet\", \"bounding_box\": [320,200,600,500], \"estimated_quantity_grams\": 100, \"timestamp_seconds\": 0}, {\"name\": \"sauce\", \"bounding_box\": [100,400,400,600], \"estimated_quantity_grams\": 60}].\n"
+            "Output only valid JSON (you may wrap in ```json)."
+        )
+        try:
+            try:
+                from google import genai as genai_new
+                from google.genai import types
+                client = genai_new.Client(api_key=self.config.GEMINI_API_KEY)
+                size = video_path.stat().st_size
+                mime = "video/mp4" if video_path.suffix.lower() in (".mp4", ".mpg", ".mpeg") else "video/quicktime"
+                video_models_try = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
+                response_text = ""
+                if size <= self._GEMINI_VIDEO_INLINE_LIMIT:
+                    video_bytes = video_path.read_bytes()
+                    parts = [
+                        types.Part(inline_data=types.Blob(data=video_bytes, mime_type=mime)),
+                        types.Part(text=prompt),
+                    ]
+                    for model_name in video_models_try:
+                        try:
+                            response = client.models.generate_content(
+                                model=model_name,
+                                contents=types.Content(parts=parts),
+                            )
+                            response_text = response.text or ""
+                            if response_text:
+                                break
+                        except Exception:
+                            continue
+                else:
+                    print("  → Uploading video via File API (Gemini video)...")
+                    sys.stdout.flush()
+                    myfile = client.files.upload(file=str(video_path))
+                    for model_name in video_models_try:
+                        try:
+                            response = client.models.generate_content(
+                                model=model_name,
+                                contents=[myfile, prompt],
+                            )
+                            response_text = response.text or ""
+                            if response_text:
+                                break
+                        except Exception:
+                            continue
+            except ImportError:
+                response_text = ""
+            if not response_text:
+                return None
+            if "```json" in response_text:
+                json_start = response_text.find("```json") + 7
+                json_end = response_text.find("```", json_start)
+                json_str = response_text[json_start:json_end].strip()
+            elif "```" in response_text:
+                json_start = response_text.find("```") + 3
+                json_end = response_text.find("```", json_start)
+                json_str = response_text[json_start:json_end].strip()
+            else:
+                json_start = response_text.find("{")
+                json_end = response_text.rfind("}") + 1
+                json_str = response_text[json_start:json_end] if json_start >= 0 else ""
+            if not json_str:
+                return None
+            data = json.loads(json_str)
+        except Exception as e:
+            logger.warning(f"[Gemini video] Failed: {e}")
+            return None
+        visible = data.get("visible_ingredients") or []
+        boxes = []
+        labels = []
+        grams_list = []
+        ref_w, ref_h = self._GEMINI_VIDEO_REF_W, self._GEMINI_VIDEO_REF_H
+        for ing in visible:
+            bbox = ing.get("bounding_box")
+            name = (ing.get("name") or "").strip()
+            if not name or not bbox or len(bbox) != 4:
+                continue
+            x_min = max(0, min(float(bbox[0]), ref_w))
+            y_min = max(0, min(float(bbox[1]), ref_h))
+            x_max = max(0, min(float(bbox[2]), ref_w))
+            y_max = max(0, min(float(bbox[3]), ref_h))
+            if x_max <= x_min or y_max <= y_min:
+                continue
+            g = ing.get("estimated_quantity_grams")
+            try:
+                grams_list.append(float(g) if g is not None else None)
+            except (TypeError, ValueError):
+                grams_list.append(None)
+            boxes.append([x_min, y_min, x_max, y_max])
+            labels.append(name)
+        caption = data.get("main_food_item") or ""
+        if data.get("additional_notes"):
+            caption = f"{caption}. {data['additional_notes']}" if caption else data["additional_notes"]
+        if not boxes:
+            return None
+        print(f"  ✓ Gemini video (one-shot): {len(labels)} objects")
+        sys.stdout.flush()
+        return (np.array(boxes, dtype=np.float32), labels, caption, grams_list)
+    
     def _detect_objects_florence(self, image_pil, processor, model):
-        """Detect objects using Florence-2"""
+        """Detect objects using Florence-2 (used when USE_GEMINI_DETECTION is False)."""
         import sys
         sys.stdout.flush()
         
@@ -1616,8 +1923,14 @@ class NutritionVideoPipeline:
         """
         global s3_client
         
-        if not S3_RESULTS_BUCKET:
-            logger.warning(f"[{job_id}] S3_RESULTS_BUCKET not set, skipping S3 upload of segmented images")
+        if not S3_RESULTS_BUCKET or not UPLOAD_SEGMENTED_IMAGES:
+            if not S3_RESULTS_BUCKET:
+                logger.warning(
+                    f"[{job_id}] S3_RESULTS_BUCKET not set, skipping S3 upload of segmented images. "
+                    f"Results are saved locally at {masks_dir} and {overlay_dir}."
+                )
+            else:
+                logger.info(f"[{job_id}] UPLOAD_SEGMENTED_IMAGES is disabled, skipping S3 upload of segmented images.")
             return
         
         try:
@@ -2970,8 +3283,9 @@ Example:
             if any(keyword in label.lower() for keyword in skip_keywords):
                 continue
             
-            # Get nutrition info for all food items, no volume threshold
-            nutrition = rag.get_nutrition_for_food(label, max_volume)
+            # Use Gemini-provided mass (grams) when available; otherwise RAG uses volume
+            gemini_grams_g = item_data['statistics'].get('gemini_grams_g')
+            nutrition = rag.get_nutrition_for_food(label, max_volume, mass_g=gemini_grams_g)
             nutrition_items.append(nutrition)
             
             total_food_volume += max_volume

@@ -31,9 +31,10 @@ WORKDIR /app
 RUN pip install --no-cache-dir "numpy==1.24.3"
 
 # Install PyTorch CPU version (will use the pinned NumPy 1.24.3)
+# Note: 2.1.0+cpu is no longer available from CPU index, using regular PyPI version
+# This will work fine for CPU-only environments (CUDA won't be used)
 RUN pip install --no-cache-dir \
-    --index-url https://download.pytorch.org/whl/cpu \
-    torch==2.1.0+cpu torchvision==0.16.0+cpu
+    torch==2.1.0 torchvision==0.16.0
 
 # Copy and install Python dependencies
 COPY requirements.txt .

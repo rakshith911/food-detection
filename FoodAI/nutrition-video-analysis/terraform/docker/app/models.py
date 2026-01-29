@@ -26,6 +26,11 @@ if not hasattr(transformers_utils, 'is_flash_attn_greater_or_equal_2_10'):
 else:
     print("✅ is_flash_attn_greater_or_equal_2_10 already exists in transformers.utils")
 
+# CRITICAL: Patch transformers import checking BEFORE importing transformers
+# Florence-2's modeling file checks for flash_attn imports
+# We'll patch transformers.dynamic_module_utils.check_imports in load_florence2
+print("✅ Will patch transformers import checking for flash_attn (CPU mode)")
+
 # CRITICAL: Import NumPy BEFORE PyTorch to ensure PyTorch can detect it
 # PyTorch's torch.from_numpy() requires NumPy to be imported first
 import numpy as np
@@ -87,12 +92,45 @@ def load_florence2(model_name: str = "microsoft/Florence-2-base-ft", device: str
         return cached
     
     logger.info(f"Loading Florence-2 model: {model_name}...")
+    print(f"⏳ Loading Florence-2 model '{model_name}' from HuggingFace...")
+    print("   This may take 1-2 minutes (downloading ~1GB)...")
+    import sys
+    sys.stdout.flush()
+    
+    # CRITICAL: Patch transformers' check_imports to skip flash_attn requirement
+    # This is called when loading models with trust_remote_code=True
+    try:
+        from transformers.dynamic_module_utils import check_imports as _original_check_imports
+        def _patched_check_imports(module_file):
+            # Call original check_imports but catch flash_attn ImportError
+            try:
+                return _original_check_imports(module_file)
+            except ImportError as e:
+                error_msg = str(e)
+                if 'flash_attn' in error_msg:
+                    # Suppress flash_attn requirement - we'll use eager attention
+                    logger.info("Suppressing flash_attn requirement (using CPU eager attention)")
+                    print("✓ Suppressing flash_attn requirement (CPU mode)")
+                    sys.stdout.flush()
+                    return []  # Return empty list (no missing packages)
+                raise  # Re-raise if it's a different ImportError
+        
+        import transformers.dynamic_module_utils
+        transformers.dynamic_module_utils.check_imports = _patched_check_imports
+        print("✓ Patched transformers.check_imports to skip flash_attn")
+        sys.stdout.flush()
+    except Exception as e:
+        logger.warning(f"Could not patch check_imports: {e}")
+        print(f"⚠ Warning: Could not patch check_imports: {e}")
+        sys.stdout.flush()
     
     processor = AutoProcessor.from_pretrained(
         model_name,
         trust_remote_code=True,
         cache_dir=None  # Use default HF cache
     )
+    print("✓ Florence-2 processor loaded")
+    sys.stdout.flush()
     
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
@@ -100,6 +138,8 @@ def load_florence2(model_name: str = "microsoft/Florence-2-base-ft", device: str
         cache_dir=None,
         attn_implementation="eager"  # Use eager attention instead of flash_attn for CPU
     ).to(device)
+    print("✓ Florence-2 model loaded")
+    sys.stdout.flush()
     
     model.eval()
     
@@ -107,6 +147,45 @@ def load_florence2(model_name: str = "microsoft/Florence-2-base-ft", device: str
     model_cache.set(cache_key, result)
     
     logger.info(f"✓ Florence-2 loaded successfully")
+    return result
+
+
+def load_flan_t5(model_name: str = "google/flan-t5-small", device: str = "cpu") -> tuple:
+    """
+    Load FLAN-T5 model for text formatting tasks
+    
+    Args:
+        model_name: HuggingFace model name (default: flan-t5-small ~300MB)
+        device: Device to load model on (default: cpu)
+        
+    Returns:
+        (tokenizer, model) tuple
+    """
+    cache_key = f"flan_t5_{model_name}_{device}"
+    cached = model_cache.get(cache_key)
+    if cached:
+        logger.info(f"Using cached FLAN-T5 model")
+        return cached
+    
+    logger.info(f"Loading FLAN-T5 model: {model_name}...")
+    print(f"⏳ Loading FLAN-T5 model '{model_name}' from HuggingFace...")
+    print("   This is a small model (~300MB) for text formatting...")
+    sys.stdout.flush()
+    
+    from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+    
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    model = model.to(device)
+    model.eval()
+    
+    print("✓ FLAN-T5 model loaded")
+    sys.stdout.flush()
+    
+    result = (tokenizer, model)
+    model_cache.set(cache_key, result)
+    
+    logger.info(f"✓ FLAN-T5 loaded successfully")
     return result
 
 
@@ -129,12 +208,61 @@ def load_sam2(config_path: str, checkpoint_path: str, device: str = "cuda"):
         return cached
     
     logger.info(f"Loading SAM2 model: {checkpoint_path}...")
+    print(f"⏳ Loading SAM2 model from checkpoint...")
+    print(f"   Config: {config_path}")
+    print(f"   Checkpoint: {checkpoint_path}")
+    import sys
+    import os
+    sys.stdout.flush()
+    
+    # Convert Path objects to strings and resolve relative to sam2 package
+    # Hydra expects config_name as a relative path from the sam2 package root (e.g., "configs/sam2.1/sam2.1_hiera_b+.yaml")
+    from pathlib import Path as PathLib
+    
+    # Get the absolute config path
+    if isinstance(config_path, PathLib):
+        config_abs = config_path
+    else:
+        config_abs = PathLib(config_path)
+    
+    # Find sam2 package root (sam2.__path__[0] points to the sam2 package directory)
+    import sam2
+    sam2_root = PathLib(sam2.__path__[0])  # This is the sam2 package directory itself
+    
+    # Convert absolute path to relative path from sam2 root
+    try:
+        config_file_str = str(config_abs.relative_to(sam2_root))
+        # Normalize path separators for Hydra (use forward slashes)
+        config_file_str = config_file_str.replace(os.sep, '/')
+    except ValueError:
+        # If not relative to sam2_root, try to extract relative part
+        # Config path should be like: .../sam2/configs/.../file.yaml
+        config_str = str(config_abs.resolve())
+        sam2_str = str(sam2_root.resolve())
+        if sam2_str in config_str:
+            config_file_str = config_str.split(sam2_str + os.sep, 1)[1]
+            # Normalize path separators for Hydra (use forward slashes)
+            config_file_str = config_file_str.replace(os.sep, '/')
+        else:
+            # Fallback: use as-is if we can't resolve
+            config_file_str = str(config_abs)
+            logger.warning(f"Could not resolve config path relative to sam2 root, using: {config_file_str}")
+    
+    if isinstance(checkpoint_path, (PathLib, str)):
+        checkpoint_path_str = str(checkpoint_path)
+    else:
+        checkpoint_path_str = checkpoint_path
+    
+    print(f"   Using Hydra config path: {config_file_str}")
+    sys.stdout.flush()
     
     predictor = build_sam2_video_predictor(
-        config_file=config_path,
-        ckpt_path=checkpoint_path,
+        config_file=config_file_str,
+        ckpt_path=checkpoint_path_str,
         device=device
     )
+    print("✓ SAM2 model loaded")
+    sys.stdout.flush()
     
     model_cache.set(cache_key, predictor)
     
@@ -267,11 +395,20 @@ def load_metric3d(model_name: str = "metric3d_vit_small", device: str = "cuda"):
         assert np is not None, "NumPy must be available for Metric3D"
         logger.info(f"NumPy version: {np.__version__} - verified before Metric3D load")
         
+        # Metric3D download can take 2-5 minutes - show progress
+        print(f"⏳ Downloading Metric3D model '{model_name}' from torch.hub...")
+        print("   This may take 2-5 minutes (downloading ~500MB)...")
+        import sys
+        sys.stdout.flush()
+        
         model = torch.hub.load(
             'yvanyin/metric3d',
             model_name,
-            pretrain=True
+            pretrain=True,
+            verbose=True  # Show download progress
         )
+        print("✓ Metric3D model downloaded")
+        sys.stdout.flush()
         # Force all components to the specified device
         model = model.to(device)
         # Also ensure all buffers and registered buffers are moved
@@ -350,10 +487,16 @@ class ModelManager:
     
     def __init__(self, config):
         self.config = config
-        self.device = config.DEVICE
+        # Use CPU when CUDA is requested but not available (e.g. on Mac / CPU-only PyTorch)
+        if config.DEVICE == "cuda" and not torch.cuda.is_available():
+            self.device = "cpu"
+            logger.info("CUDA not available (e.g. Torch not compiled with CUDA) - using CPU")
+        else:
+            self.device = config.DEVICE
         
         # Models will be loaded on demand
         self._florence2 = None
+        self._flan_t5 = None
         self._sam2 = None
         self._metric3d = None
         self._rag = None
@@ -367,6 +510,16 @@ class ModelManager:
                 device=self.device
             )
         return self._florence2
+    
+    @property
+    def flan_t5(self):
+        """Lazy load FLAN-T5 for text formatting"""
+        if self._flan_t5 is None:
+            self._flan_t5 = load_flan_t5(
+                model_name=self.config.FLAN_T5_MODEL,
+                device="cpu"  # Always use CPU for this small model
+            )
+        return self._flan_t5
     
     @property
     def sam2(self):

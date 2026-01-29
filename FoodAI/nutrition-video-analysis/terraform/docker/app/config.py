@@ -5,19 +5,24 @@ Supports environment variables and different deployment modes
 import os
 from pathlib import Path
 from typing import Optional
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+# Root for data paths: parent of app/ (docker dir when local, /app when in container)
+_CONFIG_ROOT = Path(__file__).resolve().parent.parent
+
 
 class Settings(BaseSettings):
     """Application settings with environment variable support"""
-    
+
     # API Settings
     API_TITLE: str = "Nutrition Video Analysis API"
     API_VERSION: str = "1.0.0"
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     DEBUG: bool = False
-    
-    # File Storage
+
+    # File Storage (resolved in validator: /app in Docker, project dir when local)
     UPLOAD_DIR: Path = Path("/app/data/uploads")
     OUTPUT_DIR: Path = Path("/app/data/outputs")
     MODEL_CACHE_DIR: Path = Path("/app/models")
@@ -36,6 +41,10 @@ class Settings(BaseSettings):
     # Model Settings
     SAM2_CHECKPOINT: str = "checkpoints/sam2.1_hiera_base_plus.pt"
     SAM2_CONFIG: str = "configs/sam2.1/sam2.1_hiera_b+.yaml"
+    # Use Gemini for detection (image/video understanding) instead of Florence-2 when True
+    USE_GEMINI_DETECTION: bool = True  # Set False to use Florence-2 for object detection
+    # When True and media is video, call Gemini video API once for the whole clip; when False, use Gemini image per frame
+    USE_GEMINI_VIDEO_DETECTION: bool = True
     FLORENCE2_MODEL: str = "microsoft/Florence-2-large-ft"  # Use large model for better accuracy (heavier: ~3GB vs ~1GB)
     METRIC3D_MODEL: str = "metric3d_vit_small"
     FLAN_T5_MODEL: str = "google/flan-t5-small"  # Small LLM for text formatting (~300MB)
@@ -104,7 +113,51 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"  # DEBUG, INFO, WARNING, ERROR
     LOG_FORMAT: str = "json"  # "json" or "text"
-    
+
+    @model_validator(mode="after")
+    def use_local_paths_when_not_in_docker(self):
+        """When /app doesn't exist (running locally), use project dir for data paths."""
+        if not Path("/app").exists():
+            root = _CONFIG_ROOT
+            self.UPLOAD_DIR = root / "data" / "uploads"
+            self.OUTPUT_DIR = root / "data" / "outputs"
+            self.MODEL_CACHE_DIR = root / "models"
+            self.DENSITY_PDF_PATH = root / "data" / "rag" / "ap815e.pdf"
+            self.FNDDS_EXCEL_PATH = root / "data" / "rag" / "FNDDS.xlsx"
+            self.COFID_EXCEL_PATH = root / "data" / "rag" / "CoFID.xlsx"
+        return self
+
+    @model_validator(mode="after")
+    def gemini_api_key_fallback(self):
+        """If GEMINI_API_KEY not set, try reading from TEST_OPTIMIZATIONS.md in FoodAI/docker (same as gemini scripts)."""
+        if self.GEMINI_API_KEY and str(self.GEMINI_API_KEY).strip():
+            return self
+        # Check docker dir and parent (terraform) so we find the key from any run location
+        for candidate in [_CONFIG_ROOT, _CONFIG_ROOT.parent]:
+            fallback_file = candidate / "TEST_OPTIMIZATIONS.md"
+            if not fallback_file.exists():
+                continue
+            try:
+                content = fallback_file.read_text(encoding="utf-8")
+                for line in content.split("\n"):
+                    if "GEMINI_API_KEY=" not in line:
+                        continue
+                    # Support: export GEMINI_API_KEY="..." or GEMINI_API_KEY="..."
+                    if '"' in line:
+                        key = line.split('"')[1].strip()
+                    elif "'" in line:
+                        key = line.split("'")[1].strip()
+                    else:
+                        continue
+                    if key and len(key) > 10:
+                        self.GEMINI_API_KEY = key
+                        break
+                if self.GEMINI_API_KEY:
+                    break
+            except Exception:
+                pass
+        return self
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

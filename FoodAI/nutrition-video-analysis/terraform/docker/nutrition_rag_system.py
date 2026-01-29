@@ -12,6 +12,7 @@ from sentence_transformers import SentenceTransformer
 import PyPDF2
 import re
 import os
+from typing import Optional
 
 class NutritionRAG:
     def __init__(self, pdf_path, fndds_path, cofid_path):
@@ -304,20 +305,24 @@ class NutritionRAG:
         
         return results
     
-    def get_nutrition_for_food(self, food_name, volume_ml):
+    def get_nutrition_for_food(self, food_name, volume_ml, mass_g=None):
         """
         Get complete nutrition information for a food item
         
         Args:
             food_name: Name of the food (e.g., "spaghetti")
             volume_ml: Volume in milliliters
+            mass_g: Optional mass in grams (e.g. from Gemini estimated_quantity_grams). If provided and > 0, used instead of volume*density.
             
         Returns:
             dict with mass, calories, density, sources
         """
-        print(f"\n  Looking up nutrition for: {food_name} ({volume_ml:.1f}ml)")
+        if mass_g is not None and mass_g > 0:
+            print(f"\n  Looking up nutrition for: {food_name} (mass: {mass_g:.1f}g from Gemini)")
+        else:
+            print(f"\n  Looking up nutrition for: {food_name} ({volume_ml:.1f}ml)")
         
-        # Search for density
+        # Search for density (used only when mass_g not provided)
         density_results = self.search(food_name, k=3)
         density_matches = [r for r in density_results if r['data']['type'] == 'density']
         
@@ -332,8 +337,11 @@ class NutritionRAG:
             density_source = 'default'
             density_similarity = 0.0
         
-        # Calculate mass
-        mass_g = volume_ml * density
+        # Use Gemini-provided mass when available; otherwise derive from volume
+        if mass_g is not None and mass_g > 0:
+            mass_g = float(mass_g)
+        else:
+            mass_g = volume_ml * density
         
         # Search for calories
         calorie_results = self.search(food_name, k=3)
@@ -351,22 +359,22 @@ class NutritionRAG:
             calorie_similarity = float(calorie_matches[0]['similarity'])
             matched_food_name = str(best_calorie['food'])
 
-        # If no calorie match or low-confidence, try Gemini total kcal fallback
-        low_confidence = (not calorie_matches) or (calorie_similarity <= 0.5) or (matched_food_name == 'unknown')
-        if (calories_per_100g is None or low_confidence) and self.gemini_available and mass_g > 0:
-            try:
-                print(f"    Attempting Gemini fallback for calories (food='{food_name}', mass={mass_g:.1f} g, match_conf={calorie_similarity:.2f})...")
-                est_total_kcal = self._estimate_calories_with_gemini(food_name, mass_g, volume_ml, matched_food_name)
-                if est_total_kcal is not None and est_total_kcal > 0:
-                    calories_per_100g = (est_total_kcal / mass_g) * 100.0
-                    calorie_source = 'gemini'
-                    calorie_similarity = 1.0  # treat as authoritative for this fallback
-                    matched_food_name = f"gemini:{food_name}"
-                    print(f"    Gemini fallback used: ~{est_total_kcal:.0f} kcal for {mass_g:.1f} g → {calories_per_100g:.0f} kcal/100g")
-                else:
-                    print("    Gemini fallback returned no usable numeric value; retaining database/default calories.")
-            except Exception as e:
-                print(f"    Gemini fallback failed: {e}")
+        # If no calorie match or low-confidence, try Gemini total kcal fallback (commented out: grams now come from Gemini)
+        # low_confidence = (not calorie_matches) or (calorie_similarity <= 0.5) or (matched_food_name == 'unknown')
+        # if (calories_per_100g is None or low_confidence) and self.gemini_available and mass_g > 0:
+        #     try:
+        #         print(f"    Attempting Gemini fallback for calories (food='{food_name}', mass={mass_g:.1f} g, match_conf={calorie_similarity:.2f})...")
+        #         est_total_kcal = self._estimate_calories_with_gemini(food_name, mass_g, volume_ml, matched_food_name)
+        #         if est_total_kcal is not None and est_total_kcal > 0:
+        #             calories_per_100g = (est_total_kcal / mass_g) * 100.0
+        #             calorie_source = 'gemini'
+        #             calorie_similarity = 1.0  # treat as authoritative for this fallback
+        #             matched_food_name = f"gemini:{food_name}"
+        #             print(f"    Gemini fallback used: ~{est_total_kcal:.0f} kcal for {mass_g:.1f} g → {calories_per_100g:.0f} kcal/100g")
+        #         else:
+        #             print("    Gemini fallback returned no usable numeric value; retaining database/default calories.")
+        #     except Exception as e:
+        #         print(f"    Gemini fallback failed: {e}")
 
         # Final safety default if still missing
         if calories_per_100g is None:
@@ -392,7 +400,7 @@ class NutritionRAG:
             'matched_food': matched_food_name
         }
 
-    def _estimate_calories_with_gemini(self, food_name: str, mass_g: float, volume_ml: float | None = None, matched_food: str | None = None) -> float | None:
+    def _estimate_calories_with_gemini(self, food_name: str, mass_g: float, volume_ml: Optional[float] = None, matched_food: Optional[str] = None) -> Optional[float]:
         """
         Ask Gemini to estimate total calories for the given food and mass.
         Returns total kcal (float) or None.
@@ -407,7 +415,7 @@ class NutritionRAG:
         base_name = matched_food if (matched_food and matched_food != 'unknown') else food_name
         refined = self._refine_food_label(base_name)
 
-        def _attempt(prompt: str) -> float | None:
+        def _attempt(prompt: str) -> Optional[float]:
             try:
                 resp = self._gemini_model.generate_content(prompt)
                 text = (resp.text or "").strip()
@@ -500,6 +508,7 @@ def analyze_meal_nutrition(volume_json_path, output_path=None):
             label = item_data.get('label', item_key)
             stats = item_data.get('statistics', {})
             max_volume = stats.get('max_volume_ml', 0)
+            gemini_grams_g = stats.get('gemini_grams_g')
         else:
             continue
         
@@ -509,12 +518,12 @@ def analyze_meal_nutrition(volume_json_path, output_path=None):
             print(f"\n  Skipping non-food item: {label}")
             continue
         
-        if max_volume < 5:  # Skip very small items
+        if max_volume < 5 and (not gemini_grams_g or gemini_grams_g < 5):  # Skip very small items
             print(f"\n  Skipping tiny item: {label} ({max_volume:.1f}ml)")
             continue
         
-        # Get nutrition info
-        nutrition = rag.get_nutrition_for_food(label, max_volume)
+        # Get nutrition info (use Gemini mass when available)
+        nutrition = rag.get_nutrition_for_food(label, max_volume, mass_g=gemini_grams_g)
         nutrition_results['items'].append(nutrition)
         
         total_volume += max_volume
