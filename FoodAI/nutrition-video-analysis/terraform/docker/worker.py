@@ -198,14 +198,15 @@ def process_media(media_path: str, job_id: str) -> dict:
 
         update_job_status(job_id, 'processing', progress=95)
 
-        # Transform results to expected format
-        meal_summary = results.get('nutrition', {}).get('meal_summary', {})
+        # Transform results to expected format (pipeline returns nutrition.summary, not meal_summary)
+        nutrition = results.get('nutrition', {})
+        meal_summary = nutrition.get('meal_summary') or nutrition.get('summary', {})
 
         return {
             'job_id': job_id,
             'media_path': media_path,
             'media_type': results.get('media_type', 'unknown'),
-            'detected_items': results.get('nutrition', {}).get('items', []),
+            'detected_items': nutrition.get('items', []),
             'meal_summary': meal_summary,
             'processing_info': {
                 'frames_processed': results.get('num_frames_processed', 0),
@@ -420,6 +421,11 @@ def process_message(message: dict):
             media_filename = os.path.basename(s3_key)
             media_path = os.path.join(tmpdir, media_filename)
             download_media(s3_bucket, s3_key, media_path)
+
+            # Log media type for debugging (videos must have correct extension for pipeline)
+            ext = (os.path.splitext(media_filename)[1] or "").lower()
+            is_video = ext in {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"}
+            print(f"Media type: {'VIDEO' if is_video else 'IMAGE'} (filename={media_filename}, ext={ext})")
 
             update_job_status(job_id, 'processing', progress=5)
 
