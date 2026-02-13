@@ -8,6 +8,7 @@ import numpy as np
 from pathlib import Path
 from PIL import Image
 from typing import Dict, List, Tuple, Optional
+import io
 import logging
 import json
 import sys
@@ -158,19 +159,27 @@ class NutritionVideoPipeline:
             # Step 3: Analyze nutrition
             nutrition_results = self._analyze_nutrition(tracking_results, job_id)
 
-            # Step 4: Compile complete results
+            # Step 4: Compile complete results (same structure as image)
             final_results = {
-                    'job_id': job_id,
-                    'media_name': video_path.name,
-                    'media_type': 'video',
-                    'timestamp': datetime.utcnow().isoformat(),
-                    'num_frames_processed': len(frames),
-                    'calibration': self.calibration,
-                    'florence_detections': self.florence_detections,  # Store Florence-2 detection results
-                    'tracking': tracking_results,
-                    'nutrition': nutrition_results,
-                    'status': 'completed'
-                }
+                'job_id': job_id,
+                'media_name': video_path.name,
+                'media_type': 'video',
+                'timestamp': datetime.utcnow().isoformat(),
+                'num_frames_processed': len(frames),
+                'calibration': self.calibration,
+                'florence_detections': self.florence_detections,
+                'tracking': tracking_results,
+                'nutrition': nutrition_results,
+                'status': 'completed'
+            }
+
+            # Step 5: Generate segmented overlay video (same directory as segmented images)
+            num_frames_for_video = getattr(self.config, "VIDEO_NUM_FRAMES", None)
+            if num_frames_for_video and len(frames) == num_frames_for_video and tracking_results.get('objects'):
+                try:
+                    self._generate_segmented_video(video_path, job_id, tracking_results)
+                except Exception as e:
+                    logger.warning(f"[{job_id}] Segmented video generation failed (non-fatal): {e}", exc_info=True)
 
             logger.info(f"[{job_id}] ✓ Processing completed successfully")
             return final_results
@@ -180,14 +189,44 @@ class NutritionVideoPipeline:
             raise
     
     def _load_frames(self, video_path: Path) -> List[np.ndarray]:
-        """Load and subsample frames from video"""
+        """Load frames from video. If VIDEO_NUM_FRAMES is set, enforce VIDEO_MAX_DURATION_SECONDS and load exactly that many frames evenly spaced."""
         cap = cv2.VideoCapture(str(video_path))
         
         if not cap.isOpened():
             raise ValueError(f"Could not open video: {video_path}")
         
-        fps = cap.get(cv2.CAP_PROP_FPS)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration_sec = total_frames / fps if fps > 0 else 0.0
+        
+        num_frames_to_load = getattr(self.config, "VIDEO_NUM_FRAMES", None)
+        max_duration = getattr(self.config, "VIDEO_MAX_DURATION_SECONDS", None)
+        
+        if num_frames_to_load is not None and num_frames_to_load > 0 and max_duration is not None:
+            if duration_sec > max_duration:
+                cap.release()
+                raise ValueError(
+                    f"Video duration {duration_sec:.1f}s exceeds maximum {max_duration}s. "
+                    "Only videos up to 5 seconds are supported."
+                )
+            # Exactly N frames evenly spaced in time (same prompt logic as single image; 5 frames for no-duplicate handling)
+            logger.info(f"Video: {fps:.1f}fps, {total_frames} total frames, {duration_sec:.1f}s — loading exactly {num_frames_to_load} frames")
+            frames = []
+            for i in range(num_frames_to_load):
+                t_sec = (i / max(1, num_frames_to_load - 1)) * max(0.0, duration_sec - 0.001)
+                frame_idx = min(int(t_sec * fps), total_frames - 1) if total_frames > 0 else 0
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                aspect_ratio = frame.shape[0] / frame.shape[1]
+                new_height = int(self.config.RESIZE_WIDTH * aspect_ratio)
+                frame_resized = cv2.resize(frame, (self.config.RESIZE_WIDTH, new_height))
+                frames.append(cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB))
+            cap.release()
+            if len(frames) != num_frames_to_load:
+                raise ValueError(f"Could not load {num_frames_to_load} frames from video (got {len(frames)})")
+            return frames
         
         logger.info(f"Video: {fps:.1f}fps, {total_frames} total frames")
         logger.info(f"Processing every {self.config.FRAME_SKIP} frames")
@@ -231,6 +270,15 @@ class NutritionVideoPipeline:
         # Video: one-shot Gemini video only (no frame-wise detection). Image: frame-wise Gemini/Florence as needed.
         initial_video_detections = None
         use_video_detection = False
+        num_frames_for_video = getattr(self.config, "VIDEO_NUM_FRAMES", None)
+        use_multi_image_video = (
+            video_path is not None
+            and self.config.USE_GEMINI_DETECTION
+            and getattr(self.config, "USE_GEMINI_VIDEO_DETECTION", True)
+            and num_frames_for_video is not None
+            and num_frames_for_video > 0
+            and len(frames) == num_frames_for_video
+        )
         is_video_one_shot_mode = (
             video_path is not None
             and self.config.USE_GEMINI_DETECTION
@@ -238,9 +286,14 @@ class NutritionVideoPipeline:
             and len(frames) > 1
         )
         if is_video_one_shot_mode:
-            print("🎬 One-shot Gemini video detection for whole clip (no frame-wise detection)...")
-            sys.stdout.flush()
-            initial_video_detections = self._detect_objects_gemini_video(video_path, job_id)
+            if use_multi_image_video:
+                print("🎬 Gemini multi-image (5 frames, no duplicates) for whole clip...")
+                sys.stdout.flush()
+                initial_video_detections = self._detect_objects_gemini_multi_image(frames, job_id)
+            else:
+                print("🎬 One-shot Gemini video detection for whole clip (no frame-wise detection)...")
+                sys.stdout.flush()
+                initial_video_detections = self._detect_objects_gemini_video(video_path, job_id)
             if initial_video_detections is not None:
                 use_video_detection = True
                 logger.info(f"[{job_id}] Using Gemini video detections for frame 0 only (one-shot only)")
@@ -313,7 +366,7 @@ class NutritionVideoPipeline:
                         else:
                             logger.info(f"[{job_id}] Frame 0: One-shot video had no detections (no frame-wise fallback)")
                     elif use_video_detection and frame_idx == 0 and initial_video_detections is not None:
-                        # initial_video_detections: (boxes, labels, caption, grams_list, quantity_list)
+                        # initial_video_detections: (boxes, labels, caption, grams_list, quantity_list [, ref_size])
                         unpacked = initial_video_detections
                         boxes_ref, labels, detected_caption = unpacked[0], unpacked[1], unpacked[2]
                         detection_grams_list = unpacked[3] if len(unpacked) > 3 else []
@@ -323,10 +376,12 @@ class NutritionVideoPipeline:
                             detection_grams_list = [None] * len(labels)
                         if len(detection_quantity_list) != len(labels):
                             detection_quantity_list = [1] * len(labels)
-                        # Scale boxes from 1280x720 to actual frame size
+                        # Scale boxes from reference size to actual frame size (ref_size = 6th elem or 1280x720)
                         h, w = frame.shape[:2]
-                        scale_x = w / self._GEMINI_VIDEO_REF_W
-                        scale_y = h / self._GEMINI_VIDEO_REF_H
+                        ref_w = unpacked[5][0] if len(unpacked) > 5 else self._GEMINI_VIDEO_REF_W
+                        ref_h = unpacked[5][1] if len(unpacked) > 5 else self._GEMINI_VIDEO_REF_H
+                        scale_x = w / ref_w
+                        scale_y = h / ref_h
                         boxes = np.array(boxes_ref, dtype=np.float32)
                         if len(boxes) > 0:
                             boxes[:, [0, 2]] *= scale_x
@@ -742,7 +797,13 @@ class NutritionVideoPipeline:
                 stats['quantity'] = int(item['gemini_quantity'])
             else:
                 stats['quantity'] = 1
-            results['objects'][f"ID{obj_id}_{label}"] = {'label': label, 'statistics': stats}
+            obj_entry = {'label': label, 'statistics': stats}
+            if obj_id in tracked_objects:
+                obj_entry['obj_id'] = obj_id
+                box = tracked_objects[obj_id].get('box')
+                if box is not None:
+                    obj_entry['box'] = box.tolist() if hasattr(box, 'tolist') else list(box)
+            results['objects'][f"ID{obj_id}_{label}"] = obj_entry
         
         # Add untracked items with estimated volumes to results
         for item in untracked_items:
@@ -769,7 +830,13 @@ class NutritionVideoPipeline:
                 stats['quantity'] = int(item['gemini_quantity'])
             else:
                 stats['quantity'] = 1
-            results['objects'][f"ID{obj_id}_{label}"] = {'label': label, 'statistics': stats}
+            obj_entry = {'label': label, 'statistics': stats}
+            if obj_id in tracked_objects:
+                obj_entry['obj_id'] = obj_id
+                box = tracked_objects[obj_id].get('box')
+                if box is not None:
+                    obj_entry['box'] = box.tolist() if hasattr(box, 'tolist') else list(box)
+            results['objects'][f"ID{obj_id}_{label}"] = obj_entry
         
         logger.info(f"[{job_id}] Tracked {len(results['objects'])} objects across all frames ({len(objects_with_volume)} with calculated volumes, {len(results['objects']) - len(objects_with_volume)} with estimated volumes)")
         results['total_objects'] = len(results['objects'])
@@ -968,6 +1035,147 @@ class NutritionVideoPipeline:
         sys.stdout.flush()
         return boxes, labels, caption, [], grams_list, quantity_list
     
+    def _detect_objects_gemini_multi_image(self, frames_list: List[np.ndarray], job_id: str):
+        """
+        Detect food objects using Gemini with multiple images (5 frames) in one prompt.
+        Same prompt logic as single image; additionally instructs: do not count duplicates
+        across frames — list each unique food item once. Boxes are in first image coordinates.
+        Returns (boxes, labels, caption, grams_list, quantity_list, ref_size) with ref_size=(w, h) of first frame.
+        """
+        import sys
+        sys.stdout.flush()
+        if not self.config.GEMINI_API_KEY:
+            logger.warning("[Gemini multi-image] GEMINI_API_KEY not set")
+            return None
+        n_expected = getattr(self.config, "VIDEO_NUM_FRAMES", 5)
+        if len(frames_list) < n_expected:
+            logger.warning(f"[Gemini multi-image] Expected at least {n_expected} frames, got {len(frames_list)}")
+            return None
+        # Use first frame dimensions for bbox coordinates
+        h0, w0 = frames_list[0].shape[:2]
+        img_width, img_height = w0, h0
+        # Same prompt as single image, plus: 5 frames, do not count duplicates
+        prompt = (
+            "These 5 images are consecutive frames (1 second apart) from a single 5-second video clip. "
+            "Analyze them together. List each UNIQUE food item exactly once — do NOT count the same physical item "
+            "twice if it appears in multiple frames. For each item provide bounding_box in the coordinate system "
+            "of the FIRST image only.\n\n"
+            "Analyze this food image in detail. Provide a comprehensive analysis including:\n"
+            "1. MAIN DISH/FOOD ITEM: Primary food name, cuisine type, cooking method.\n"
+            "2. VISIBLE INGREDIENTS WITH LOCATIONS: List all visible ingredients/components (garnishes, sides, sauces). "
+            "For each visible food item provide bounding box [x_min, y_min, x_max, y_max], estimated_quantity_grams, and quantity (count).\n"
+            f"Image dimensions (first image): {img_width} x {img_height} pixels. Bounding boxes in pixels (0 to width/height).\n"
+            "estimated_quantity_grams: TOTAL edible mass in grams for that item. When there are multiple identical pieces (e.g. 6 kiwi slices, several grapes), use ONE entry with quantity set to the count and estimated_quantity_grams as the TOTAL mass for all of them.\n"
+            "quantity: integer count of identical items (e.g. 6 for six kiwi slices, 1 for a single fish fillet). Always include; use 1 for a single portion.\n"
+            "Use realistic typical weights (e.g. one fish fillet 80–120g, sauce 40–80g, six kiwi slices ~120g total). "
+            "Each item must have a DIFFERENT value reflecting its apparent portion size; do not repeat the same value for all items.\n"
+            "3. INGREDIENT BREAKDOWN, 4. NUTRITIONAL INFORMATION, 5. ADDITIONAL NOTES.\n\n"
+            "Format as JSON: main_food_item, cuisine_type, cooking_method, "
+            "visible_ingredients (array of {name, bounding_box [x_min,y_min,x_max,y_max], estimated_quantity_grams, quantity}), "
+            "ingredient_breakdown, nutritional_info, allergens, dietary_tags, additional_notes.\n"
+            "Example: [{\"name\": \"fish fillet\", \"bounding_box\": [100,50,300,250], \"estimated_quantity_grams\": 95, \"quantity\": 1}]. "
+            "Output only valid JSON (you may wrap in ```json)."
+        )
+        try:
+            from google import genai as genai_new
+            from google.genai import types
+            client = genai_new.Client(api_key=self.config.GEMINI_API_KEY)
+            parts = [types.Part(text=prompt)]
+            for i, frame in enumerate(frames_list[:n_expected]):
+                pil_img = Image.fromarray(frame)
+                buf = io.BytesIO()
+                pil_img.save(buf, format="JPEG", quality=85)
+                parts.append(types.Part(inline_data=types.Blob(data=buf.getvalue(), mime_type="image/jpeg")))
+            response_text = ""
+            for model_name in ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"]:
+                try:
+                    print(f"  → Calling Gemini multi-image for food detection ({model_name}), 5 frames (no duplicates)...")
+                    sys.stdout.flush()
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=types.Content(parts=parts),
+                    )
+                    response_text = (response.text or "").strip()
+                    if response_text:
+                        break
+                except Exception as e:
+                    logger.warning(f"[Gemini multi-image] {model_name} failed: {e}")
+                    continue
+            if not response_text:
+                logger.warning("[Gemini multi-image] All models failed")
+                return None
+            if "```json" in response_text:
+                json_start = response_text.find("```json") + 7
+                json_end = response_text.find("```", json_start)
+                json_str = response_text[json_start:json_end].strip()
+            elif "```" in response_text:
+                json_start = response_text.find("```") + 3
+                json_end = response_text.find("```", json_start)
+                json_str = response_text[json_start:json_end].strip()
+            else:
+                json_start = response_text.find("{")
+                json_end = response_text.rfind("}") + 1
+                json_str = response_text[json_start:json_end] if json_start >= 0 else ""
+            if not json_str:
+                return None
+            data = json.loads(json_str)
+        except Exception as e:
+            logger.warning(f"[Gemini multi-image] Failed: {e}")
+            return None
+        visible = data.get("visible_ingredients") or []
+        boxes = []
+        labels = []
+        grams_list = []
+        quantity_list = []
+        for ing in visible:
+            bbox = ing.get("bounding_box")
+            name = (ing.get("name") or "").strip()
+            if not name or not bbox or len(bbox) != 4:
+                continue
+            x_min = max(0, min(float(bbox[0]), img_width))
+            y_min = max(0, min(float(bbox[1]), img_height))
+            x_max = max(0, min(float(bbox[2]), img_width))
+            y_max = max(0, min(float(bbox[3]), img_height))
+            if x_max <= x_min or y_max <= y_min:
+                continue
+            g = ing.get("estimated_quantity_grams")
+            try:
+                grams_list.append(float(g) if g is not None else None)
+            except (TypeError, ValueError):
+                grams_list.append(None)
+            q = ing.get("quantity")
+            try:
+                quantity_list.append(max(1, int(q)) if q is not None else 1)
+            except (TypeError, ValueError):
+                quantity_list.append(1)
+            boxes.append([x_min, y_min, x_max, y_max])
+            labels.append(name)
+        caption = data.get("main_food_item") or ""
+        if data.get("additional_notes"):
+            caption = f"{caption}. {data['additional_notes']}" if caption else data["additional_notes"]
+        if not boxes and (data.get("main_food_item") or data.get("ingredient_breakdown")):
+            fallback_labels = []
+            main = (data.get("main_food_item") or "").strip()
+            if main:
+                fallback_labels.append(main)
+            for x in (data.get("ingredient_breakdown") or []):
+                if isinstance(x, str) and x.strip():
+                    fallback_labels.append(x.strip())
+                elif isinstance(x, dict) and (x.get("name") or x.get("item")):
+                    fallback_labels.append((x.get("name") or x.get("item") or "").strip())
+            if fallback_labels:
+                seen = set()
+                unique = [x for x in fallback_labels if x and x.lower() not in seen and not seen.add(x.lower())]
+                boxes = [[0, 0, img_width, img_height]] * len(unique)
+                labels = unique
+                grams_list = [None] * len(unique)
+                quantity_list = [1] * len(unique)
+        boxes = np.array(boxes, dtype=np.float32) if boxes else np.array([])
+        print(f"  ✓ Gemini multi-image: {len(labels)} unique objects (no duplicates across frames)")
+        sys.stdout.flush()
+        ref_size = (img_width, img_height)
+        return (boxes, labels, caption, grams_list, quantity_list, ref_size)
+    
     # Reference resolution for Gemini video bounding boxes (prompt asks for 1280x720)
     _GEMINI_VIDEO_REF_W = 1280
     _GEMINI_VIDEO_REF_H = 720
@@ -1137,7 +1345,7 @@ class NutritionVideoPipeline:
                 return None
         print(f"  ✓ Gemini video (one-shot): {len(labels)} objects")
         sys.stdout.flush()
-        return (np.array(boxes, dtype=np.float32), labels, caption, grams_list, quantity_list)
+        return (np.array(boxes, dtype=np.float32), labels, caption, grams_list, quantity_list, (self._GEMINI_VIDEO_REF_W, self._GEMINI_VIDEO_REF_H))
     
     def _detect_objects_florence(self, image_pil, processor, model):
         """Detect objects using Florence-2 (used when USE_GEMINI_DETECTION is False)."""
@@ -2064,6 +2272,170 @@ class NutritionVideoPipeline:
         except Exception as e:
             logger.error(f"[{job_id}] Failed to upload segmented images to S3: {e}", exc_info=True)
             # Don't fail the entire pipeline if S3 upload fails
+    
+    def _generate_segmented_video(self, video_path: Path, job_id: str, tracking_results: Dict):
+        """
+        After pipeline has results from the 5 frames, run the full 5-second video through SAM2
+        with the detected labels/boxes to produce a segmented overlay video. Saves in the same
+        directory as segmented images (masks_overlay) and uploads to S3 under segmented_images/{job_id}/.
+        """
+        objects = tracking_results.get('objects') or {}
+        # Collect (obj_id, label, box) for objects that have box (from frame 0). Keys may be int or "ID{n}_{label}".
+        initial_detections = []
+        for key, data in objects.items():
+            if not isinstance(data, dict):
+                continue
+            obj_id = data.get('obj_id')
+            if obj_id is None:
+                try:
+                    if isinstance(key, int):
+                        obj_id = key
+                    else:
+                        obj_id = int(str(key).replace("ID", "").split("_")[0])
+                except (ValueError, TypeError, AttributeError):
+                    continue
+            box = data.get('box')
+            label = data.get('label', '')
+            if box is not None and len(box) == 4 and label:
+                initial_detections.append((obj_id, label, box))
+        if not initial_detections:
+            logger.info(f"[{job_id}] No objects with boxes for segmented video; skipping")
+            return
+        # Load full video and extract all frames (same resize as pipeline)
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            logger.warning(f"[{job_id}] Could not open video for segmented overlay: {video_path}")
+            return
+        fps = cap.get(cv2.CAP_PROP_FPS) or 15.0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        max_duration_sec = getattr(self.config, "VIDEO_MAX_DURATION_SECONDS", 5.0)
+        if total_frames / max(fps, 1) > max_duration_sec + 0.5:
+            cap.release()
+            logger.warning(f"[{job_id}] Video longer than {max_duration_sec}s; skipping segmented video")
+            return
+        frames_list = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            aspect_ratio = frame.shape[0] / frame.shape[1]
+            new_h = int(self.config.RESIZE_WIDTH * aspect_ratio)
+            frame_resized = cv2.resize(frame, (self.config.RESIZE_WIDTH, new_h))
+            frames_list.append(cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB))
+        cap.release()
+        if not frames_list:
+            logger.warning(f"[{job_id}] No frames read for segmented video")
+            return
+        # Write frames to temp dir for SAM2 (expects directory of images)
+        frame_dir = self.config.OUTPUT_DIR / job_id / "frames_segment_video"
+        frame_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            for idx, frame in enumerate(frames_list):
+                Image.fromarray(frame).save(frame_dir / f"{idx:05d}.jpg")
+            video_predictor = self.models.sam2
+            inference_state = video_predictor.init_state(video_path=str(frame_dir))
+            # Add boxes at frame 0 (SAM2 uses 1-based sequential IDs)
+            for sam2_id, (obj_id, label, box) in enumerate(initial_detections, start=1):
+                x1, y1, x2, y2 = box
+                h, w = frames_list[0].shape[:2]
+                x1 = max(0, min(x1, w - 1))
+                y1 = max(0, min(y1, h - 1))
+                x2 = max(x1 + 1, min(x2, w))
+                y2 = max(y1 + 1, min(y2, h))
+                box_sam = np.array([[[x1, y1], [x2, y2]]])
+                try:
+                    video_predictor.add_new_points_or_box(
+                        inference_state=inference_state,
+                        frame_idx=0,
+                        obj_id=sam2_id,
+                        box=box_sam,
+                    )
+                except Exception as e:
+                    logger.warning(f"[{job_id}] SAM2 add box failed for obj {obj_id}: {e}")
+            # Per-frame masks: sam2_id -> obj_id mapping
+            sam2_to_obj = {i: det[0] for i, det in enumerate(initial_detections, start=1)}
+            obj_id_to_label = {det[0]: det[1] for det in initial_detections}
+            # Distinct colors per object (BGR for cv2)
+            np.random.seed(42)
+            colors_bgr = {}
+            for i, (obj_id, _, _) in enumerate(initial_detections):
+                r, g, b = np.random.randint(50, 255, size=3)
+                colors_bgr[obj_id] = (int(b), int(g), int(r))
+            # Output video: same directory as segmented image overlays
+            overlay_dir = self.config.OUTPUT_DIR / job_id / "masks_overlay"
+            overlay_dir.mkdir(parents=True, exist_ok=True)
+            out_video_path = overlay_dir / "segmented_overlay_video.mp4"
+            h, w = frames_list[0].shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(str(out_video_path), fourcc, fps, (w, h))
+            if not writer.isOpened():
+                logger.warning(f"[{job_id}] Could not create video writer: {out_video_path}")
+                return
+            for frame_idx in range(len(frames_list)):
+                out_frame_idx, sam2_obj_ids, out_mask_logits = video_predictor.infer_single_frame(
+                    inference_state, frame_idx
+                )
+                frame_bgr = cv2.cvtColor(frames_list[frame_idx], cv2.COLOR_RGB2BGR)
+                overlay = frame_bgr.astype(np.float32) / 255.0
+                for i, sam2_id in enumerate(sam2_obj_ids):
+                    obj_id = sam2_to_obj.get(sam2_id)
+                    if obj_id is None:
+                        continue
+                    mask_logit = out_mask_logits[i]
+                    mask_np = (mask_logit > 0.0).cpu().numpy()
+                    if len(mask_np.shape) == 3:
+                        mask_np = mask_np[0]
+                    if mask_np.shape[:2] != (h, w):
+                        mask_np = cv2.resize(
+                            mask_np.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST
+                        ).astype(bool)
+                    color = colors_bgr.get(obj_id, (128, 128, 128))
+                    color_f = np.array([color[0] / 255.0, color[1] / 255.0, color[2] / 255.0])
+                    for c in range(3):
+                        overlay[:, :, c] = np.where(
+                            mask_np,
+                            overlay[:, :, c] * 0.5 + color_f[c] * 0.5,
+                            overlay[:, :, c],
+                        )
+                overlay_uint8 = (np.clip(overlay, 0, 1) * 255).astype(np.uint8)
+                # Draw labels on first frame and every 15th for readability
+                if frame_idx == 0 or frame_idx % 15 == 0:
+                    for obj_id in sam2_to_obj.values():
+                        label = obj_id_to_label.get(obj_id, '')
+                        if label:
+                            # Place text at top, offset by obj_id to avoid overlap
+                            y_pos = 30 + list(sam2_to_obj.values()).index(obj_id) * 22
+                            cv2.putText(
+                                overlay_uint8, label[:40], (10, y_pos),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
+                            )
+                writer.write(overlay_uint8)
+            writer.release()
+            logger.info(f"[{job_id}] Saved segmented overlay video: {out_video_path}")
+            # Upload to S3 (same prefix as segmented images)
+            if S3_RESULTS_BUCKET and UPLOAD_SEGMENTED_IMAGES and out_video_path.exists():
+                try:
+                    global s3_client
+                    if s3_client is None:
+                        s3_client = boto3.client('s3')
+                    s3_key = f"segmented_images/{job_id}/segmented_overlay_video.mp4"
+                    s3_client.upload_file(
+                        str(out_video_path),
+                        S3_RESULTS_BUCKET,
+                        s3_key,
+                        ExtraArgs={'ContentType': 'video/mp4'}
+                    )
+                    logger.info(f"[{job_id}] Uploaded segmented video to s3://{S3_RESULTS_BUCKET}/{s3_key}")
+                except Exception as e:
+                    logger.warning(f"[{job_id}] Failed to upload segmented video to S3: {e}")
+        finally:
+            # Clean temp frame dir
+            import shutil
+            if frame_dir.exists():
+                try:
+                    shutil.rmtree(frame_dir)
+                except OSError:
+                    pass
     
     def _calculate_iou(self, box1, box2):
         """Calculate Intersection over Union (IoU) between two boxes"""

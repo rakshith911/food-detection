@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     FRAME_SKIP: int = 20  # Process every 20th frame (faster for 5 seconds: 60fps × 5sec / 20 = 15 frames)
     MAX_FRAMES: Optional[int] = 15  # Limit to ~5 seconds of video at 60fps
     RESIZE_WIDTH: int = 800
+    # Strict 5-second video: only videos up to this duration; extract exactly this many frames for Gemini multi-image
+    VIDEO_MAX_DURATION_SECONDS: float = 5.0
+    VIDEO_NUM_FRAMES: int = 5  # Extract 5 frames (one per second) for multi-image prompt; do not count duplicates
     
     # General Calibration (fallback when no reference object detected)
     DEFAULT_PIXELS_PER_CM: float = 16.0  # Default: 800px image ≈ 50cm scene width (800/50 = 16 px/cm)
