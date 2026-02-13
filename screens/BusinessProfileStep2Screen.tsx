@@ -340,12 +340,16 @@ export default function BusinessProfileStep2Screen({ navigation }: { navigation:
 
   // Memoize handlers to prevent re-renders
   const handleBusinessCategoryChange = useCallback((value: any) => {
-    setBusinessCategory({
-      ...businessCategory,
-      value: value.text,
-      selectedList: value.selectedList,
-    });
-  }, [businessCategory]);
+    // Single-select: only keep the most recently selected item
+    const singleItem = value.selectedList && value.selectedList.length > 0
+      ? [value.selectedList[value.selectedList.length - 1]]
+      : [];
+    setBusinessCategory((prev) => ({
+      ...prev,
+      value: singleItem.length > 0 ? singleItem[0].value : '',
+      selectedList: singleItem,
+    }));
+  }, []);
 
   const handleCuisineTypeChange = useCallback((value: any) => {
     setCuisineType({
@@ -449,7 +453,7 @@ export default function BusinessProfileStep2Screen({ navigation }: { navigation:
                 onSelection={handleBusinessCategoryChange}
                 arrayList={businessCategory.list}
                 selectedArrayList={businessCategory.selectedList}
-                multiEnable={true}
+                multiEnable={false}
               />
             </View>
 

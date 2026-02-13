@@ -396,7 +396,7 @@ export default function EditProfileStep1Screen() {
         
         Alert.alert('Success', 'Address details auto-filled from postcode');
       } else {
-        Alert.alert('Not Found', 'Could not find details for this postcode');
+        Alert.alert('', "We couldn't find your postal code. You may still proceed with this postal code.");
       }
     } catch (error) {
       console.error('Postcode lookup error:', error);

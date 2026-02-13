@@ -293,7 +293,7 @@ export default function BusinessProfileStep1Screen({ navigation }: { navigation:
         // Show address fields after successful lookup (no popup - fields just appear)
         setShowAddressFields(true);
       } else {
-        Alert.alert('Not Found', 'Could not find details for this postcode. You can still proceed with just the postcode.');
+        Alert.alert('', "We couldn't find your postal code. You may still proceed with this postal code.");
       }
     } catch (error) {
       console.error('Postcode lookup error:', error);

@@ -258,6 +258,10 @@
     tags = {
       Name = "${local.name_prefix}-video-processing"
     }
+
+    lifecycle {
+      ignore_changes = [kms_master_key_id] # Existing queue may use different KMS; avoid force-recreate
+    }
   }
 
   resource "aws_sqs_queue" "nutrition_analysis" {
@@ -269,6 +273,10 @@
 
     tags = {
       Name = "${local.name_prefix}-nutrition-analysis"
+    }
+
+    lifecycle {
+      ignore_changes = [kms_master_key_id] # Existing queue may use different KMS; avoid force-recreate
     }
   }
 
@@ -1145,6 +1153,7 @@
     type        = "SecureString"
     value       = var.gemini_api_key
     key_id      = aws_kms_key.main.arn
+    overwrite   = true # Allow updating existing parameter (e.g. new Gemini key)
 
     tags = {
       Name = "${local.name_prefix}-gemini-api-key"
