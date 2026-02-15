@@ -2136,130 +2136,204 @@ class NutritionVideoPipeline:
         
         return np.array(filtered_boxes) if filtered_boxes else np.array([]), filtered_labels
     
+    # Very distinct color palette (RGB 0-255) – maximally separated hues so items
+    # are easy to tell apart even when many are on screen at once.
+    DISTINCT_COLORS_RGB = [
+        (230,  25,  75),   # Red
+        ( 60, 180,  75),   # Green
+        (  0, 130, 200),   # Blue
+        (255, 225,  25),   # Yellow
+        (245, 130,  48),   # Orange
+        (145,  30, 180),   # Purple
+        ( 70, 240, 240),   # Cyan
+        (240,  50, 230),   # Magenta
+        (210, 245,  60),   # Lime
+        (250, 190, 212),   # Pink
+        (  0, 128, 128),   # Teal
+        (220, 190, 255),   # Lavender
+        (170, 110,  40),   # Brown
+        (255, 250, 200),   # Beige
+        (128,   0,   0),   # Maroon
+        (170, 255, 195),   # Mint
+        (128, 128,   0),   # Olive
+        (255, 215, 180),   # Apricot
+        (  0,   0, 128),   # Navy
+        (128, 128, 128),   # Grey
+    ]
+
+    def _get_distinct_color_rgb(self, index: int):
+        """Return a distinct RGB tuple (0-255) for the given index, cycling if > palette size."""
+        return self.DISTINCT_COLORS_RGB[index % len(self.DISTINCT_COLORS_RGB)]
+
     def _save_segmentation_masks(self, frame, masks_dict, tracked_objects, frame_idx, job_id):
-        """Save SAM2 segmentation masks as images using matplotlib for better visualization"""
-        import matplotlib.pyplot as plt
-        import matplotlib.patches as mpatches
-        from matplotlib.colors import ListedColormap
+        """Draw coloured mask overlays with label names directly on each food item using OpenCV.
+
+        No individual mask images are saved – only a single annotated overlay image
+        is produced and uploaded to S3.
+        """
         from pathlib import Path
-        
-        # Create masks directory
-        masks_dir = self.config.OUTPUT_DIR / job_id / "masks"
-        masks_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create overlay directory for visualization
+
+        # Create overlay directory (no separate masks directory needed any more)
         overlay_dir = self.config.OUTPUT_DIR / job_id / "masks_overlay"
         overlay_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Convert BGR to RGB for matplotlib
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        
-        # Generate distinct colors for each object
-        import matplotlib.cm as cm
-        num_objects = len(masks_dict)
-        colors = cm.get_cmap('tab20', num_objects)(np.linspace(0, 1, num_objects))
-        color_map = {obj_id: colors[i] for i, obj_id in enumerate(masks_dict.keys())}
-        
-        # Create figure for overlay
-        fig, ax = plt.subplots(1, 1, figsize=(12, 12))
-        ax.imshow(frame_rgb)
-        ax.axis('off')
-        
-        # Save individual masks and add to overlay
-        legend_elements = []
-        for obj_id, mask in masks_dict.items():
-            if obj_id not in tracked_objects:
-                continue
-                
+
+        # Work on a float copy so we can alpha-blend
+        overlay = frame.astype(np.float32) / 255.0  # BGR float
+        h, w = frame.shape[:2]
+
+        # Assign a distinct colour to each object (BGR order for OpenCV)
+        obj_ids_sorted = sorted(
+            [oid for oid in masks_dict.keys() if oid in tracked_objects]
+        )
+        color_bgr_map = {}
+        for idx, obj_id in enumerate(obj_ids_sorted):
+            r, g, b = self._get_distinct_color_rgb(idx)
+            color_bgr_map[obj_id] = (b, g, r)  # OpenCV uses BGR
+
+        # --- draw coloured masks and collect label info ---
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.45
+        thickness = 1
+        pad = 2  # padding around label text
+
+        # (cx, cy, tx, ty, tw, th_text, baseline, display_label, bgr)
+        # cx,cy = mask centroid (anchor);  tx,ty = label text origin (may be nudged)
+        label_info = []
+
+        for obj_id in obj_ids_sorted:
+            mask = masks_dict[obj_id]
             label = tracked_objects[obj_id]['label']
-            
+
             # Handle mask shape (could be 2D or 3D)
             if len(mask.shape) == 3:
                 mask_2d = mask[0]
             else:
                 mask_2d = mask
-            
-            # Convert mask to uint8 (0 or 255) and save
-            mask_uint8 = (mask_2d * 255).astype(np.uint8)
-            safe_label = label.replace(' ', '_').replace('/', '_')[:50]
-            mask_filename = masks_dir / f"frame_{frame_idx:05d}_obj_{obj_id}_{safe_label}.png"
-            cv2.imwrite(str(mask_filename), mask_uint8)
-            
-            # Add colored mask to overlay using matplotlib
-            color = color_map[obj_id]
+
             mask_bool = mask_2d.astype(bool)
-            
-            # Create colored mask overlay
-            colored_mask = np.zeros((*mask_2d.shape, 4))
-            colored_mask[mask_bool] = [*color[:3], 0.5]  # RGB + alpha
-            
-            ax.imshow(colored_mask)
-            
-            # Add label to legend
-            legend_elements.append(mpatches.Patch(facecolor=color[:3], label=f"ID{obj_id}: {label}"))
-        
-        # Add legend
-        if legend_elements:
-            ax.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(0, 1), 
-                     fontsize=8, framealpha=0.9)
-        
-        # Save overlay
+            if mask_bool.shape[:2] != (h, w):
+                mask_bool = cv2.resize(
+                    mask_2d.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST
+                ).astype(bool)
+
+            # Alpha-blend the colour onto the mask region (50 % opacity)
+            bgr = color_bgr_map[obj_id]
+            color_f = np.array([bgr[0] / 255.0, bgr[1] / 255.0, bgr[2] / 255.0])
+            for c in range(3):
+                overlay[:, :, c] = np.where(
+                    mask_bool,
+                    overlay[:, :, c] * 0.5 + color_f[c] * 0.5,
+                    overlay[:, :, c],
+                )
+
+            # Find mask centroid
+            ys, xs = np.where(mask_bool)
+            if len(xs) > 0:
+                cx, cy = int(np.mean(xs)), int(np.mean(ys))
+            else:
+                cx, cy = w // 2, h // 2
+
+            display_label = label[:40]
+            (tw, th_text), baseline = cv2.getTextSize(display_label, font, font_scale, thickness)
+
+            # Initial position centred on mask centroid, clamped to image bounds
+            tx = max(0, min(cx - tw // 2, w - tw - pad * 2))
+            ty = max(th_text + pad, min(cy, h - baseline - pad))
+
+            label_info.append([cx, cy, tx, ty, tw, th_text, baseline, display_label, bgr])
+
+        # --- nudge overlapping labels so they don't pile on top of each other ---
+        def pill_rect(info):
+            """Return (x1, y1, x2, y2) of the label pill for collision checks."""
+            _, _, tx, ty, tw, th_text, baseline, _, _ = info
+            return (tx - pad, ty - th_text - pad, tx + tw + pad, ty + baseline + pad)
+
+        def rects_overlap(a, b):
+            ax1, ay1, ax2, ay2 = pill_rect(a)
+            bx1, by1, bx2, by2 = pill_rect(b)
+            return ax1 < bx2 and ax2 > bx1 and ay1 < by2 and ay2 > by1
+
+        pill_h = label_info[0][5] + label_info[0][6] + pad * 2 + 2 if label_info else 14
+        for i in range(len(label_info)):
+            orig_ty = label_info[i][3]
+            step = pill_h
+            for attempt in range(30):
+                if not any(rects_overlap(label_info[i], label_info[j]) for j in range(i)):
+                    break
+                # Alternate down / up from original position: +1, -1, +2, -2, …
+                offset = ((attempt // 2) + 1) * step * (1 if attempt % 2 == 0 else -1)
+                new_ty = orig_ty + offset
+                if new_ty - label_info[i][5] - pad < 0 or new_ty + label_info[i][6] + pad > h:
+                    continue
+                label_info[i][3] = new_ty
+
+        # --- draw leader lines + labels on the overlay ---
+        overlay_uint8 = (np.clip(overlay, 0, 1) * 255).astype(np.uint8)
+
+        for cx, cy, tx, ty, tw, th_text, baseline, display_label, bgr in label_info:
+            # Leader line from mask centroid to label centre (in the mask's colour)
+            label_cx = tx + tw // 2
+            label_cy = ty - th_text // 2
+            # Only draw if the label was actually displaced from the centroid
+            dist = ((label_cx - cx) ** 2 + (label_cy - cy) ** 2) ** 0.5
+            if dist > 15:
+                cv2.line(overlay_uint8, (cx, cy), (label_cx, label_cy), bgr, 1, cv2.LINE_AA)
+                # Small circle at the centroid anchor
+                cv2.circle(overlay_uint8, (cx, cy), 3, bgr, -1, cv2.LINE_AA)
+
+            # Dark background pill behind the text
+            cv2.rectangle(
+                overlay_uint8,
+                (tx - pad, ty - th_text - pad),
+                (tx + tw + pad, ty + baseline + pad),
+                (0, 0, 0),
+                cv2.FILLED,
+            )
+            # White label text for readability
+            cv2.putText(
+                overlay_uint8, display_label, (tx, ty),
+                font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA,
+            )
+
+        overlay = overlay_uint8.astype(np.float32) / 255.0
+
+        # Final image
+        result = (np.clip(overlay, 0, 1) * 255).astype(np.uint8)
+
         overlay_filename = overlay_dir / f"frame_{frame_idx:05d}_all_masks.png"
-        plt.tight_layout()
-        plt.savefig(str(overlay_filename), dpi=150, bbox_inches='tight', pad_inches=0)
-        plt.close()
-        
-        # Upload segmented images to S3
-        self._upload_segmented_images_to_s3(job_id, masks_dir, overlay_dir, frame_idx)
-        
-        logger.info(f"[{job_id}] Frame {frame_idx}: Saved {len(masks_dict)} segmentation masks to {masks_dir}")
+        cv2.imwrite(str(overlay_filename), result)
+
+        # Upload only the overlay to S3 (no individual masks)
+        self._upload_segmented_images_to_s3(job_id, overlay_dir, frame_idx)
+
+        logger.info(f"[{job_id}] Frame {frame_idx}: Saved labelled overlay to {overlay_filename}")
     
-    def _upload_segmented_images_to_s3(self, job_id: str, masks_dir: Path, overlay_dir: Path, frame_idx: int):
+    def _upload_segmented_images_to_s3(self, job_id: str, overlay_dir: Path, frame_idx: int):
         """
-        Upload segmented images (masks and overlays) to S3 for later retrieval.
-        
-        Structure:
-        - For images: segmented_images/{job_id}/frame_00000/masks/ and overlays/
-        - For videos: segmented_images/{job_id}/frame_00000/, frame_00001/, etc.
+        Upload the labelled overlay image to S3 for later retrieval.
+
+        Structure: segmented_images/{job_id}/frame_XXXXX/overlays/all_masks.png
         """
         global s3_client
-        
+
         if not S3_RESULTS_BUCKET or not UPLOAD_SEGMENTED_IMAGES:
             if not S3_RESULTS_BUCKET:
                 logger.warning(
                     f"[{job_id}] S3_RESULTS_BUCKET not set, skipping S3 upload of segmented images. "
-                    f"Results are saved locally at {masks_dir} and {overlay_dir}."
+                    f"Results are saved locally at {overlay_dir}."
                 )
             else:
                 logger.info(f"[{job_id}] UPLOAD_SEGMENTED_IMAGES is disabled, skipping S3 upload of segmented images.")
             return
-        
+
         try:
             # Initialize S3 client if not already done
             if s3_client is None:
                 s3_client = boto3.client('s3')
-            
-            uploaded_count = 0
+
             frame_folder = f"frame_{frame_idx:05d}"
-            
-            # Upload individual mask files
-            # Structure: segmented_images/{job_id}/frame_XXXXX/masks/mask_file.png
-            mask_files = list(masks_dir.glob(f"frame_{frame_idx:05d}_*.png"))
-            for mask_file in mask_files:
-                # Extract just the filename (without the frame prefix since it's in the folder name)
-                mask_filename = mask_file.name
-                s3_key = f"segmented_images/{job_id}/{frame_folder}/masks/{mask_filename}"
-                s3_client.upload_file(
-                    str(mask_file),
-                    S3_RESULTS_BUCKET,
-                    s3_key,
-                    ExtraArgs={'ContentType': 'image/png'}
-                )
-                uploaded_count += 1
-                logger.info(f"[{job_id}] Uploaded mask to s3://{S3_RESULTS_BUCKET}/{s3_key}")
-            
-            # Upload overlay file
-            # Structure: segmented_images/{job_id}/frame_XXXXX/overlays/all_masks.png
+
+            # Upload overlay file only (no individual masks)
             overlay_file = overlay_dir / f"frame_{frame_idx:05d}_all_masks.png"
             if overlay_file.exists():
                 s3_key = f"segmented_images/{job_id}/{frame_folder}/overlays/all_masks.png"
@@ -2269,11 +2343,12 @@ class NutritionVideoPipeline:
                     s3_key,
                     ExtraArgs={'ContentType': 'image/png'}
                 )
-                uploaded_count += 1
                 logger.info(f"[{job_id}] Uploaded overlay to s3://{S3_RESULTS_BUCKET}/{s3_key}")
-            
-            logger.info(f"[{job_id}] Frame {frame_idx}: Uploaded {uploaded_count} segmented images to S3 (bucket: {S3_RESULTS_BUCKET}, path: segmented_images/{job_id}/{frame_folder}/)")
-            
+            else:
+                logger.warning(f"[{job_id}] Overlay file not found: {overlay_file}")
+
+            logger.info(f"[{job_id}] Frame {frame_idx}: Uploaded labelled overlay to S3 (bucket: {S3_RESULTS_BUCKET}, path: segmented_images/{job_id}/{frame_folder}/)")
+
         except Exception as e:
             logger.error(f"[{job_id}] Failed to upload segmented images to S3: {e}", exc_info=True)
             # Don't fail the entire pipeline if S3 upload fails
@@ -2403,17 +2478,8 @@ class NutritionVideoPipeline:
                             overlay[:, :, c],
                         )
                 overlay_uint8 = (np.clip(overlay, 0, 1) * 255).astype(np.uint8)
-                # Draw labels on first frame and every 15th for readability
-                if frame_idx == 0 or frame_idx % 15 == 0:
-                    for obj_id in sam2_to_obj.values():
-                        label = obj_id_to_label.get(obj_id, '')
-                        if label:
-                            # Place text at top, offset by obj_id to avoid overlap
-                            y_pos = 30 + list(sam2_to_obj.values()).index(obj_id) * 22
-                            cv2.putText(
-                                overlay_uint8, label[:40], (10, y_pos),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
-                            )
+                # Labels are drawn directly on each food item via the mask overlay,
+                # so no need for a stacked label list at the top of the frame.
                 writer.write(overlay_uint8)
             writer.release()
             logger.info(f"[{job_id}] Saved segmented overlay video: {out_video_path}")

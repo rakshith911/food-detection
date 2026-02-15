@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { login } from '../store/slices/authSlice';
+import { login, sendOTP } from '../store/slices/authSlice';
 import VectorBackButton from '../components/VectorBackButton';
 import Group2076Logo from '../components/Group2076Logo';
 import ScreenLoader from '../components/ScreenLoader';
@@ -68,6 +68,19 @@ export default function OTPScreen({ navigation, route }: { navigation: any; rout
     }
   };
 
+  const handleResendOTP = async () => {
+    try {
+      const result = await dispatch(sendOTP({ input: email, method: 'email' }));
+      if (!sendOTP.fulfilled.match(result)) {
+        Alert.alert('Error', 'Failed to resend code. Please try again.');
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to resend code. Please try again.');
+    }
+    setOtp(['', '', '', '', '', '']);
+    inputRefs.current[0]?.focus();
+  };
+
   const handleVerifyOTP = async (otpCode?: string) => {
     const otpToVerify = otpCode || otp.join('');
     
@@ -83,15 +96,22 @@ export default function OTPScreen({ navigation, route }: { navigation: any; rout
         // App.tsx will check consent/profile status and route appropriately
         // This prevents showing ConsentScreen/TutorialScreen for existing users
       } else if (login.rejected.match(result)) {
-        const errorMessage = result.error?.message || 'Invalid OTP. Please try again.';
-        Alert.alert('Error', errorMessage);
         setOtp(['', '', '', '', '', '']);
         inputRefs.current[0]?.focus();
+        Alert.alert(
+          'Invalid OTP',
+          'Invalid OTP. Please try again!',
+          [{ text: 'Resend OTP', onPress: handleResendOTP }]
+        );
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to verify OTP. Please try again.');
       setOtp(['', '', '', '', '', '']);
       inputRefs.current[0]?.focus();
+      Alert.alert(
+        'Invalid OTP',
+        'Invalid OTP. Please try again!',
+        [{ text: 'Resend OTP', onPress: handleResendOTP }]
+      );
     }
   };
 

@@ -164,7 +164,7 @@ export const login = createAsyncThunk(
         
         return userData;
       } else {
-        throw new Error('Invalid OTP');
+        throw new Error('Invalid verification code. Please check and try again.');
       }
     } catch (error) {
       console.error('Error during login:', error);

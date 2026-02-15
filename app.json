@@ -1,18 +1,13 @@
 {
   "expo": {
     "name": "UKcal",
-    "slug": "ukcal",
+    "slug": "food-detection",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "jsEngine": "hermes",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.firebeats.fooddetection",
@@ -21,6 +16,7 @@
         "NSCameraUsageDescription": "$(PRODUCT_NAME) needs access to your Camera.",
         "NSMicrophoneUsageDescription": "$(PRODUCT_NAME) needs access to your Microphone.",
         "NSPhotoLibraryUsageDescription": "This app needs access to photo library to select food images.",
+        "NSUserNotificationsUsageDescription": "UKcal would like to send you notifications",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -80,7 +76,8 @@
           "isAccessMediaLocationEnabled": true
         }
       ],
-      ["expo-video", {}]
+      ["expo-video", {}],
+      ["expo-notifications", { "defaultChannel": "default" }]
     ],
     "owner": "leolorence12345"
   }

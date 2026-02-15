@@ -757,7 +757,6 @@ export default function EditProfileStep2Screen() {
               {/* Business Category */}
               <View style={styles.inputWrapper}>
                 <MultiSelect
-                  key={`business-category-${businessCategory.selectedList.length > 0 ? businessCategory.selectedList[0]._id : 'none'}`}
                   label="Business Category"
                   value={businessCategory.value}
                   onSelection={handleBusinessCategoryChange}
@@ -794,7 +793,6 @@ export default function EditProfileStep2Screen() {
               {/* Average Dish Price */}
               <View style={styles.inputWrapper}>
                 <MultiSelect
-                  key={`average-dish-price-${averageDishPrice.selectedList.length > 0 ? averageDishPrice.selectedList[0]._id : 'none'}`}
                   label="Average Dish Price"
                   value={averageDishPrice.value}
                   onSelection={handleAverageDishPriceChange}
@@ -819,7 +817,6 @@ export default function EditProfileStep2Screen() {
               {/* Business Size */}
               <View style={styles.inputWrapper}>
                 <MultiSelect
-                  key={`business-size-${businessSize.selectedList.length > 0 ? businessSize.selectedList[0]._id : 'none'}`}
                   label="Business Size"
                   value={businessSize.value}
                   onSelection={handleBusinessSizeChange}

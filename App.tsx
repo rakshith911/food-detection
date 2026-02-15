@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import * as Notifications from 'expo-notifications';
 import { Alert } from 'react-native';
 import { NavigationContainer, CommonActions } from '@react-navigation/native';
 import { createStackNavigator, TransitionPresets } from '@react-navigation/stack';
@@ -21,6 +22,18 @@ import { loadProfile } from './store/slices/profileSlice';
 import { userService } from './services/UserService';
 import { initSentry, setSentryUser, addBreadcrumb } from './utils/sentry';
 import { ErrorBoundary } from './components/ErrorBoundary';
+
+// Allow the OS to present notifications (sound + banner).
+// The notification function itself skips firing when the app is active,
+// so this handler only runs for background-delivered notifications.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 // Initialize Sentry FIRST, before anything else
 // Sentry DSN - Get from environment variable or use the configured DSN
@@ -278,7 +291,9 @@ function RootNavigator() {
     hasCompletedProfile 
   });
 
-  if (isLoading || isCheckingConsent) {
+  // Only show full-screen loader when authenticated (e.g. logout) or checking consent.
+  // When unauthenticated, keep the stack mounted so invalid OTP doesn't unmount and reset to login.
+  if ((isLoading && isAuthenticated) || isCheckingConsent) {
     return <AppLoader />;
   }
 
@@ -472,13 +487,17 @@ function AppContent() {
   }, [showWelcome, isAuthenticated]);
 
   if (showSplash) {
-    return <SplashScreen onFinish={() => {
-      dispatch(setShowSplash(false));
-    }} />;
+    return (
+      <SplashScreen
+        onFinish={() => {
+          dispatch(setShowSplash(false));
+        }}
+      />
+    );
   }
 
   console.log('[AppContent] Rendering app, showWelcome:', showWelcome, 'isAuthenticated:', isAuthenticated);
-  
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PaperProvider theme={{

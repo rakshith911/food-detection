@@ -1,8 +1,9 @@
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView, StatusBar, Alert, LayoutAnimation, Platform, UIManager, Animated } from 'react-native';
+import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView, StatusBar, Alert, LayoutAnimation, Platform, UIManager, Animated, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Video, ResizeMode } from 'expo-av';
+import { Camera } from 'react-native-vision-camera';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
@@ -326,10 +327,20 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
     const isPlaying = playingVideoId === item.id;
     const isAnalyzing = item.analysisStatus === 'analyzing';
     const progress = item.analysisProgress || 0;
-    const titleText = item.mealName || '';
-    const subtitleText = isAnalyzing 
-      ? 'Analyzing...' 
-      : `${item.nutritionalInfo.calories} Kcal`;
+    const totalCalories = item.nutritionalInfo?.calories ?? 0;
+    const hasMealName = !!(item.mealName && item.mealName.trim());
+    const isCompletedOrFailed = item.analysisStatus === 'completed' || item.analysisStatus === 'failed';
+    // Treat as "pending" when we have no data yet: show "Analyzing..." until we have calories or meal name.
+    // This avoids a brief flash of "Unidentified Food" / "0 kcal" when status is already 'completed' but data hasn't arrived yet.
+    const hasNoResultYet = totalCalories === 0 && !hasMealName;
+    const isPendingOrAnalyzing =
+      isAnalyzing ||
+      (hasNoResultYet && item.analysisStatus !== 'failed');
+    const hasZeroCalories = isCompletedOrFailed && totalCalories === 0;
+    const titleText = isPendingOrAnalyzing ? '' : (hasZeroCalories ? 'Unidentified Food' : (item.mealName || ''));
+    const subtitleText = isPendingOrAnalyzing
+      ? 'Analyzing...'
+      : `${item.nutritionalInfo?.calories ?? 0} Kcal`;
     const translateX = getSwipePosition(item.id);
 
     return (
@@ -363,12 +374,12 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
             <TouchableOpacity
               style={styles.card}
               onPress={() => {
-                if (!isAnalyzing) {
+                if (!isPendingOrAnalyzing && !hasZeroCalories) {
                   nav.navigate('MealDetail', { item });
                 }
               }}
-              activeOpacity={isAnalyzing ? 1 : 0.9}
-              disabled={isAnalyzing}
+              activeOpacity={isPendingOrAnalyzing || hasZeroCalories ? 1 : 0.9}
+              disabled={isPendingOrAnalyzing || hasZeroCalories}
             >
           <View style={styles.mediaWrapper}>
             {isVideo && item.videoUri ? (
@@ -431,7 +442,7 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
               <Text style={styles.cardTitle}>{titleText}</Text>
               <Text style={styles.cardSubtitle}>{subtitleText}</Text>
             </View>
-            {isAnalyzing ? (
+            {isPendingOrAnalyzing ? (
               <CircularProgressBar
                 progress={progress}
                 size={18}
@@ -584,6 +595,33 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
     }
   };
 
+  const handleCameraPress = async () => {
+    const status = Camera.getCameraPermissionStatus();
+
+    if (status === 'granted') {
+      nav.navigate('Camera');
+      return;
+    }
+
+    if (status === 'denied' || status === 'restricted') {
+      Alert.alert(
+        'Camera Access Required',
+        'Camera access was denied. Please enable it in Settings to scan food.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+      return;
+    }
+
+    // status is 'not-determined' — show the native OS permission popup
+    const result = await Camera.requestCameraPermission();
+    if (result === 'granted') {
+      nav.navigate('Camera');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" />
@@ -655,7 +693,7 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
         <TouchableOpacity
           activeOpacity={0.9}
           style={styles.captureButton}
-          onPress={() => nav.navigate('Camera')}
+          onPress={handleCameraPress}
         >
           <Ionicons name="camera" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
           <Text style={styles.captureText}>Snap a Dish</Text>

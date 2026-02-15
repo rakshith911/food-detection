@@ -7,12 +7,12 @@ import {
   TextInput,
   StatusBar,
   Alert,
-  Keyboard,
   ScrollView,
   Platform,
   Image,
   KeyboardAvoidingView,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Video, ResizeMode } from 'expo-av';
@@ -82,9 +82,8 @@ export default function FeedbackScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const commentInputRef = useRef<TextInput>(null);
   const scrollViewRef = useRef<ScrollView>(null);
-  const commentContainerRef = useRef<View>(null);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [showFullImageModal, setShowFullImageModal] = useState(false);
+  const [fullImageUri, setFullImageUri] = useState<string | null>(null);
   const [overlayLoadFailed, setOverlayLoadFailed] = useState(false);
   const [refreshedSegmentedImages, setRefreshedSegmentedImages] = useState<SegmentedImages | null>(null);
   const [refreshingOverlay, setRefreshingOverlay] = useState(false);
@@ -230,55 +229,6 @@ export default function FeedbackScreen() {
       })
     : null;
 
-  // Track keyboard visibility for padding / button positioning
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, (e) => {
-      setIsKeyboardVisible(true);
-      setKeyboardHeight(e.endCoordinates?.height ?? 0);
-    });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setIsKeyboardVisible(false);
-      setKeyboardHeight(0);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
-
-  // When keyboard shows, gently scroll to the comment box
-  useEffect(() => {
-    const keyboardListener = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => {
-        setTimeout(() => {
-          if (commentContainerRef.current && scrollViewRef.current) {
-            commentContainerRef.current.measureLayout(
-              scrollViewRef.current as any,
-              (x, y) => {
-                scrollViewRef.current?.scrollTo({
-                  y: Math.max(0, y - 100),
-                  animated: true,
-                });
-              },
-              () => {
-                // Fallback: scroll to end to ensure it is visible
-                scrollViewRef.current?.scrollToEnd({ animated: true });
-              }
-            );
-          } else if (scrollViewRef.current) {
-            scrollViewRef.current.scrollToEnd({ animated: true });
-          }
-        }, 300);
-      }
-    );
-
-    return () => keyboardListener.remove();
-  }, []);
 
   const handleSave = async () => {
     if (!user?.email || !item?.id) {
@@ -338,6 +288,43 @@ export default function FeedbackScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" />
+
+      {/* Full-screen image modal */}
+      <Modal
+        visible={showFullImageModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFullImageModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.fullImageModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowFullImageModal(false)}
+        >
+          <View style={styles.fullImageModalContent} pointerEvents="box-none">
+            <TouchableOpacity
+              style={styles.fullImageCloseButton}
+              onPress={() => setShowFullImageModal(false)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
+              <Ionicons name="close" size={28} color="#FFFFFF" />
+            </TouchableOpacity>
+            {fullImageUri ? (
+              <TouchableOpacity
+                style={styles.fullImageWrapper}
+                activeOpacity={1}
+                onPress={() => {}}
+              >
+                <Image
+                  source={{ uri: fullImageUri }}
+                  style={styles.fullImage}
+                  resizeMode="contain"
+                />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {Platform.OS === 'ios' ? (
         <KeyboardAvoidingView
@@ -409,9 +396,10 @@ export default function FeedbackScreen() {
             (() => {
               const hasOverlay = !overlayLoadFailed && effectiveSegmentedImages?.overlay_urls && effectiveSegmentedImages.overlay_urls.length > 0;
               const showImageLoader = !isVideo && (hasOverlay || !!item.imageUri);
+              const displayUri = hasOverlay ? effectiveSegmentedImages!.overlay_urls![0].url : item.imageUri || null;
               if (hasOverlay) {
                 return (
-                  <>
+                  <TouchableOpacity activeOpacity={1} onPress={() => { setFullImageUri(displayUri); setShowFullImageModal(true); }} style={styles.mediaTouchable}>
                     <Image
                       source={{ uri: effectiveSegmentedImages!.overlay_urls![0].url }}
                       style={styles.media}
@@ -424,12 +412,12 @@ export default function FeedbackScreen() {
                         <ActivityIndicator size="large" color="#7BA21B" />
                       </View>
                     )}
-                  </>
+                  </TouchableOpacity>
                 );
               }
               if (item.imageUri) {
                 return (
-                  <>
+                  <TouchableOpacity activeOpacity={1} onPress={() => { setFullImageUri(displayUri); setShowFullImageModal(true); }} style={styles.mediaTouchable}>
                     <OptimizedImage
                       source={{ uri: item.imageUri }}
                       style={styles.media}
@@ -443,7 +431,7 @@ export default function FeedbackScreen() {
                         <ActivityIndicator size="large" color="#7BA21B" />
                       </View>
                     )}
-                  </>
+                  </TouchableOpacity>
                 );
               }
               return <View style={[styles.media, styles.placeholder]} />;
@@ -469,27 +457,10 @@ export default function FeedbackScreen() {
               <TouchableOpacity
                 style={styles.writeCommentButton}
                 onPress={() => {
-                  // Scroll to comment input
+                  scrollViewRef.current?.scrollToEnd({ animated: true });
                   setTimeout(() => {
-                    if (commentContainerRef.current && scrollViewRef.current) {
-                      commentContainerRef.current.measureLayout(
-                        scrollViewRef.current as any,
-                        (x, y) => {
-                          scrollViewRef.current?.scrollTo({
-                            y: Math.max(0, y - 50),
-                            animated: true,
-                          });
-                          // Focus the input after scrolling
-                          setTimeout(() => {
-                            commentInputRef.current?.focus();
-                          }, 300);
-                        },
-                        () => {
-                          scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-                        }
-                      );
-                    }
-                  }, 100);
+                    commentInputRef.current?.focus();
+                  }, 300);
                 }}
                 activeOpacity={0.7}
               >
@@ -566,7 +537,7 @@ export default function FeedbackScreen() {
           </View>
 
           {/* Comment Section */}
-          <View ref={commentContainerRef} style={styles.commentSection}>
+          <View style={styles.commentSection}>
             <TextInput
               ref={commentInputRef}
               style={styles.commentInput}
@@ -578,24 +549,8 @@ export default function FeedbackScreen() {
               numberOfLines={4}
               textAlignVertical="top"
               onFocus={() => {
-                // Single scroll after keyboard has time to appear
                 setTimeout(() => {
-                  if (commentContainerRef.current && scrollViewRef.current) {
-                    commentContainerRef.current.measureLayout(
-                      scrollViewRef.current as any,
-                      (x, y) => {
-                        scrollViewRef.current?.scrollTo({
-                          y: Math.max(0, y - 100),
-                          animated: true,
-                        });
-                      },
-                      () => {
-                        scrollViewRef.current?.scrollToEnd({ animated: true });
-                      }
-                    );
-                  } else if (scrollViewRef.current) {
-                    scrollViewRef.current.scrollToEnd({ animated: true });
-                  }
+                  scrollViewRef.current?.scrollToEnd({ animated: true });
                 }, 300);
               }}
             />
@@ -681,9 +636,10 @@ export default function FeedbackScreen() {
                 (() => {
                   const hasOverlay = !overlayLoadFailed && effectiveSegmentedImages?.overlay_urls && effectiveSegmentedImages.overlay_urls.length > 0;
                   const showImageLoader = !isVideo && (hasOverlay || !!item.imageUri);
+                  const displayUri = hasOverlay ? effectiveSegmentedImages!.overlay_urls![0].url : item.imageUri || null;
                   if (hasOverlay) {
                     return (
-                      <>
+                      <TouchableOpacity activeOpacity={1} onPress={() => { setFullImageUri(displayUri); setShowFullImageModal(true); }} style={styles.mediaTouchable}>
                         <Image
                           source={{ uri: effectiveSegmentedImages!.overlay_urls![0].url }}
                           style={styles.media}
@@ -696,12 +652,12 @@ export default function FeedbackScreen() {
                             <ActivityIndicator size="large" color="#7BA21B" />
                           </View>
                         )}
-                      </>
+                      </TouchableOpacity>
                     );
                   }
                   if (item.imageUri) {
                     return (
-                      <>
+                      <TouchableOpacity activeOpacity={1} onPress={() => { setFullImageUri(displayUri); setShowFullImageModal(true); }} style={styles.mediaTouchable}>
                         <OptimizedImage
                           source={{ uri: item.imageUri }}
                           style={styles.media}
@@ -715,7 +671,7 @@ export default function FeedbackScreen() {
                             <ActivityIndicator size="large" color="#7BA21B" />
                           </View>
                         )}
-                      </>
+                      </TouchableOpacity>
                     );
                   }
                   return <View style={[styles.media, styles.placeholder]} />;
@@ -737,25 +693,10 @@ export default function FeedbackScreen() {
                   <TouchableOpacity
                     style={styles.writeCommentButton}
                     onPress={() => {
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
                       setTimeout(() => {
-                        if (commentContainerRef.current && scrollViewRef.current) {
-                          commentContainerRef.current.measureLayout(
-                            scrollViewRef.current as any,
-                            (x, y) => {
-                              scrollViewRef.current?.scrollTo({
-                                y: Math.max(0, y - 50),
-                                animated: true,
-                              });
-                              setTimeout(() => {
-                                commentInputRef.current?.focus();
-                              }, 300);
-                            },
-                            () => {
-                              scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-                            }
-                          );
-                        }
-                      }, 100);
+                        commentInputRef.current?.focus();
+                      }, 300);
                     }}
                     activeOpacity={0.7}
                   >
@@ -818,7 +759,7 @@ export default function FeedbackScreen() {
                   }
                 />
               </View>
-              <View ref={commentContainerRef} style={styles.commentSection}>
+              <View style={styles.commentSection}>
                 <TextInput
                   ref={commentInputRef}
                   style={styles.commentInput}
@@ -830,24 +771,8 @@ export default function FeedbackScreen() {
                   numberOfLines={4}
                   textAlignVertical="top"
                   onFocus={() => {
-                    // Single scroll after keyboard has time to appear
                     setTimeout(() => {
-                      if (commentContainerRef.current && scrollViewRef.current) {
-                        commentContainerRef.current.measureLayout(
-                          scrollViewRef.current as any,
-                          (x, y) => {
-                            scrollViewRef.current?.scrollTo({
-                              y: Math.max(0, y - 100),
-                              animated: true,
-                            });
-                          },
-                          () => {
-                            scrollViewRef.current?.scrollToEnd({ animated: true });
-                          }
-                        );
-                      } else if (scrollViewRef.current) {
-                        scrollViewRef.current.scrollToEnd({ animated: true });
-                      }
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
                     }, 300);
                   }}
                 />
@@ -1058,6 +983,41 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
+  },
+  mediaTouchable: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullImageModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullImageModalContent: {
+    width: '100%',
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullImageCloseButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 40,
+    right: 20,
+    zIndex: 10,
+    padding: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 24,
+  },
+  fullImageWrapper: {
+    width: '100%',
+    flex: 1,
+  },
+  fullImage: {
+    width: '100%',
+    flex: 1,
   },
 });
 

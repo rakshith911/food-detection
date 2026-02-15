@@ -144,13 +144,6 @@ export default function TutorialScreen({ onBack }: TutorialScreenProps = {}) {
                     Place the meal on a flat, well-lit surface.
                   </Text>
                 </View>
-                
-                <View style={styles.bulletPointFullWidth}>
-                  <View style={styles.bulletDot} />
-                  <Text style={styles.instructionTextFullWidth}>
-                    Keep a blank business card beside the plate for accurate portion size.(Optional)
-                  </Text>
-                </View>
               </View>
               
               <View style={styles.stepContent}>

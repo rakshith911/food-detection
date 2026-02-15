@@ -147,10 +147,11 @@ class MockHistoryAPI extends HistoryAPI {
     
     const history = this.mockData[userEmail] || [];
     console.log(`[Mock API] Retrieved ${history.length} entries for ${userEmail}`);
-    
+    // Return a shallow copy sorted by timestamp (avoid mutating stored array and avoid read-only refs)
+    const sorted = [...history].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return {
       success: true,
-      data: history.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+      data: sorted,
     };
   }
 

@@ -36,8 +36,9 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
   toHideSearchBox,
   selectAllEnable = true,
 }) => {
-  // Single-select: use multiEnable=true + limit=1. We patched the library so when limit=1,
-  // selecting another item replaces the selection (only one tick visible), dialog stays open.
+  // Always use multiEnable=true for PaperSelect so the dialog stays open until "Done" is clicked.
+  // With multiEnable=false (radio mode), the library auto-closes the dialog on selection.
+  // For single-select, limit=1 prevents checking more than one option at a time.
   const isSingleSelect = !multiEnable;
   const paperMultiEnable = true;
   const limit = isSingleSelect ? 1 : undefined;
@@ -74,7 +75,7 @@ const MultiSelect: React.FC<MultiSelectProps> = ({
         selectedArrayList={normalizedSelectedList}
         multiEnable={paperMultiEnable}
         limit={limit}
-        limitError="Please select only one option."
+        limitError="Uncheck the current selection first."
         selectAllEnable={isSingleSelect ? false : selectAllEnable}
         hideSearchBox={toHideSearchBox}
         textInputStyle={{

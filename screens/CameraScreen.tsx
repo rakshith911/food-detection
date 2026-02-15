@@ -12,7 +12,6 @@ import {
   Linking,
 } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useMicrophonePermission } from 'react-native-vision-camera';
-import { requestCameraPermissionsAsync } from 'expo-camera';
 import { Video, ResizeMode } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
@@ -331,17 +330,6 @@ export default function CameraScreen() {
       Linking.openSettings();
       return;
     }
-    // Try Expo's API first (reliable in Expo dev client for showing system dialog)
-    try {
-      const { status: expoStatus } = await requestCameraPermissionsAsync();
-      if (expoStatus === 'granted') {
-        await requestCameraPermission(); // sync Vision Camera hook state
-        await requestMicPermission();
-        return;
-      }
-    } catch (_) {
-      // fallback to Vision Camera request
-    }
     const cameraGranted = await requestCameraPermission();
     if (cameraGranted) {
       await requestMicPermission();
@@ -360,31 +348,43 @@ export default function CameraScreen() {
   // Check if camera device is available (won't be on simulator)
   const isCameraAvailable = device != null;
 
-  if (!hasCameraPermission) {
-    const permissionStatus = Camera.getCameraPermissionStatus();
-    const canAskAgain = permissionStatus === 'not-determined';
+  // Auto-request permission or show alert if denied
+  useEffect(() => {
+    if (hasCameraPermission === false) {
+      const status = Camera.getCameraPermissionStatus();
+      if (status === 'not-determined') {
+        // Show native OS popup directly
+        handleRequestCameraPermission();
+      } else {
+        // Already denied — show alert and go back
+        Alert.alert(
+          'Camera Access Required',
+          'Camera access was denied. Please enable it in Settings to scan food.',
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+              onPress: () => safeGoBack(navigation as any, 'Results'),
+            },
+            {
+              text: 'Open Settings',
+              onPress: () => {
+                Linking.openSettings();
+                safeGoBack(navigation as any, 'Results');
+              },
+            },
+          ],
+          { cancelable: false }
+        );
+      }
+    }
+  }, [hasCameraPermission]);
 
+  if (!hasCameraPermission) {
+    // Show minimal loading state while native popup is visible
     return (
       <View style={styles.permissionScreenContainer}>
-        <Text style={styles.permissionMessage}>
-          {canAskAgain
-            ? 'This app needs camera access to scan food.'
-            : 'Camera access was denied. Enable it in Settings to scan food.'}
-        </Text>
-        <TouchableOpacity
-          style={styles.permissionButton}
-          onPress={handleRequestCameraPermission}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.permissionButtonText}>
-            {canAskAgain ? 'Allow camera access' : 'Open Settings'}
-          </Text>
-        </TouchableOpacity>
-        {canAskAgain && (
-          <Text style={styles.permissionHint}>
-            A system dialog will ask you to allow or deny.
-          </Text>
-        )}
+        <StatusBar barStyle="dark-content" />
       </View>
     );
   }
@@ -468,13 +468,13 @@ export default function CameraScreen() {
               </View>
             </View>
 
-            {/* Recording Indicator - Only show in video mode */}
-            {activeTab === 'video' && isRecording && (
+            {/* Recording Indicator - Video disabled for now */}
+            {/* {activeTab === 'video' && isRecording && (
               <View style={styles.recordingIndicator}>
                 <View style={styles.recordingDot} />
                 <Text style={styles.recordingText}>Recording: {recordingTime}s</Text>
               </View>
-            )}
+            )} */}
 
             {/* Camera Frame Indicators - only when camera is available */}
             {isCameraAvailable && (
@@ -521,7 +521,8 @@ export default function CameraScreen() {
               </Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
+            {/* Video tab disabled for now */}
+            {/* <TouchableOpacity
               style={styles.tab}
               onPress={() => { setActiveTab('video'); setLastMediaMode('video'); }}
             >
@@ -533,7 +534,7 @@ export default function CameraScreen() {
               >
                 VIDEO
               </Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
 
             <TouchableOpacity
               style={styles.tab}
@@ -556,14 +557,15 @@ export default function CameraScreen() {
              </TouchableOpacity>
            )}
 
-           {activeTab === 'video' && isCameraAvailable && (
+           {/* Video record button disabled for now */}
+           {/* {activeTab === 'video' && isCameraAvailable && (
             <TouchableOpacity
               style={[styles.shutterButton, isRecording && styles.recordingButton]}
               onPress={isRecording ? stopRecording : startRecording}
             >
               <View style={[styles.shutterInner, isRecording && styles.recordingInner]} />
             </TouchableOpacity>
-          )}
+          )} */}
           
            {/* Show gallery prompt when camera not available */}
            {!isCameraAvailable && (activeTab === 'photo' || activeTab === 'video') && (

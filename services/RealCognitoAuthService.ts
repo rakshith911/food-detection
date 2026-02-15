@@ -319,7 +319,7 @@ class RealCognitoAuthService implements CognitoOTPService {
           // Clean up flag on error
           await AsyncStorage.removeItem(`user_reset_flow_${email}`);
           
-          // Show appropriate error message
+          // Propagate error message so UI shows a single alert
           let errorMessage = 'Invalid verification code. Please try again.';
           if (resetError.name === 'CodeMismatchException') {
             errorMessage = 'Invalid verification code. Please check and try again.';
@@ -328,9 +328,7 @@ class RealCognitoAuthService implements CognitoOTPService {
           } else if (resetError.name === 'LimitExceededException') {
             errorMessage = 'Too many attempts. Please wait a few minutes and try again.';
           }
-          
-          Alert.alert('Verification Failed', errorMessage, [{ text: 'OK' }]);
-          return { success: false };
+          throw new Error(errorMessage);
         }
       }
 
@@ -449,27 +447,15 @@ class RealCognitoAuthService implements CognitoOTPService {
             try {
               await resetPassword({ username: email });
               await AsyncStorage.setItem(`user_reset_flow_${email}`, 'true');
-              Alert.alert(
-                'New Code Sent',
-                'A new verification code has been sent to your email. Please check and try again.',
-                [{ text: 'OK' }]
-              );
-            } catch (sendError) {
+              throw new Error('A new verification code has been sent to your email. Please check and try again.');
+            } catch (sendError: any) {
+              if (sendError.message?.includes('new verification code')) throw sendError;
               console.error('Failed to send new reset code:', sendError);
-              Alert.alert(
-                'Verification Failed',
-                'Invalid or expired code. Please request a new verification code.',
-                [{ text: 'OK' }]
-              );
+              throw new Error('Invalid or expired code. Please request a new verification code.');
             }
           } else {
-            Alert.alert(
-              'Verification Failed',
-              'Invalid verification code. Please try again.',
-              [{ text: 'OK' }]
-            );
+            throw new Error('Invalid verification code. Please check and try again.');
           }
-          return { success: false };
         }
       }
       
@@ -479,9 +465,7 @@ class RealCognitoAuthService implements CognitoOTPService {
       } else if (error.name === 'ExpiredCodeException') {
         errorMessage = 'Verification code expired. Please request a new one.';
       }
-      
-      Alert.alert('Verification Failed', errorMessage, [{ text: 'OK' }]);
-      return { success: false };
+      throw new Error(errorMessage);
     }
   }
 

@@ -5,14 +5,14 @@ import {
   TouchableOpacity,
   Keyboard,
   TouchableWithoutFeedback,
-  ScrollView,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   StyleSheet,
   StatusBar,
   Image,
   ActivityIndicator,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
@@ -24,7 +24,7 @@ import VectorBackButton from '../components/VectorBackButton';
 import CustomInput from '../components/CustomInput';
 import CustomButton from '../components/CustomButton';
 import MultiSelect from '../components/MultiSelect';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { userService, BusinessProfile } from '../services/UserService';
 import { captureException } from '../utils/sentry';
@@ -41,7 +41,6 @@ interface MultiSelectState {
 }
 
 export default function EditProfileScreen() {
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
@@ -454,12 +453,16 @@ export default function EditProfileScreen() {
         style={{ height: '100%' }}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={0}
         >
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <View>
+          <ScrollView
+              style={{ flex: 1 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View>
               {/* Header */}
               <View style={styles.header}>
                 <View style={styles.headerContent}>

@@ -11,8 +11,8 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  TouchableWithoutFeedback,
   Keyboard,
+  Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,9 +58,9 @@ export default function EditProfileStep1Screen() {
   const [postalCode, setPostalCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isLookingUpPostcode, setIsLookingUpPostcode] = useState(false);
+  const [isPickerLoading, setIsPickerLoading] = useState(false);
+  const [hasPhotoPermission, setHasPhotoPermission] = useState<boolean | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
-  const districtInputContainerRef = useRef<View>(null);
-  const businessAddressInputContainerRef = useRef<View>(null);
 
   // UK Cities/Towns list
   const ukTowns = [
@@ -81,6 +81,14 @@ export default function EditProfileStep1Screen() {
     list: [{ _id: '1', value: 'United Kingdom' }],
     selectedList: [{ _id: '1', value: 'United Kingdom' }],
   });
+
+  // Pre-request photo library permission on mount and cache the result
+  useEffect(() => {
+    (async () => {
+      const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      setHasPhotoPermission(granted);
+    })();
+  }, []);
 
   // Load profile data from Redux when screen is focused
   // Only load if profile is not already loaded to avoid triggering AppLoader
@@ -217,14 +225,22 @@ export default function EditProfileStep1Screen() {
   }, [profileState.businessProfile, profileState.profileImage, profileState.avatar]);
 
   const selectProfileImage = async () => {
-    try {
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (permissionResult.granted === false) {
-        Alert.alert('Permission Required', 'Please allow access to your photo library');
-        return;
-      }
+    if (isPickerLoading) return;
 
+    if (hasPhotoPermission === false) {
+      Alert.alert(
+        'Permission Required',
+        'Photo library access is needed to upload a profile photo. Please enable it in Settings.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+      return;
+    }
+
+    setIsPickerLoading(true);
+    try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -240,7 +256,16 @@ export default function EditProfileStep1Screen() {
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to select image');
+      Alert.alert(
+        'Permission Required',
+        'Photo library access is needed to upload a profile photo. Please enable it in Settings.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+    } finally {
+      setIsPickerLoading(false);
     }
   };
 
@@ -525,8 +550,8 @@ export default function EditProfileStep1Screen() {
               )}
             </TouchableOpacity>
             <View style={styles.imageButtonsContainer}>
-              <TouchableOpacity style={styles.selectImageButton} onPress={selectProfileImage}>
-                <Text style={styles.selectImageText}>Upload Photo</Text>
+              <TouchableOpacity style={[styles.selectImageButton, isPickerLoading && { opacity: 0.6 }]} onPress={selectProfileImage} disabled={isPickerLoading}>
+                <Text style={styles.selectImageText}>{isPickerLoading ? 'Opening...' : 'Upload Photo'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -596,7 +621,7 @@ export default function EditProfileStep1Screen() {
             </View>
 
             {/* Business Address */}
-            <View ref={businessAddressInputContainerRef} style={styles.inputWrapper}>
+            <View style={styles.inputWrapper}>
               <CustomInput
                 placeholder="Business Address"
                 value={businessAddress}
@@ -604,29 +629,6 @@ export default function EditProfileStep1Screen() {
                 returnKeyType="next"
                 onSubmitEditing={() => {
                   Keyboard.dismiss();
-                }}
-                onFocus={() => {
-                  // Scroll to ensure the input is visible above keyboard
-                  setTimeout(() => {
-                    if (businessAddressInputContainerRef.current && scrollViewRef.current) {
-                      businessAddressInputContainerRef.current.measureLayout(
-                        scrollViewRef.current as any,
-                        (x, y) => {
-                          // Scroll to show input with padding above
-                          scrollViewRef.current?.scrollTo({
-                            y: Math.max(0, y - 100),
-                            animated: true,
-                          });
-                        },
-                        () => {
-                          // Fallback: scroll to end
-                          scrollViewRef.current?.scrollToEnd({ animated: true });
-                        }
-                      );
-                    } else if (scrollViewRef.current) {
-                      scrollViewRef.current.scrollToEnd({ animated: true });
-                    }
-                  }, 300);
                 }}
               />
             </View>
@@ -669,7 +671,7 @@ export default function EditProfileStep1Screen() {
             </View>
 
             {/* District/County/State */}
-            <View ref={districtInputContainerRef} style={styles.inputWrapper}>
+            <View style={styles.inputWrapper}>
               <CustomInput
                 placeholder="District/County/State"
                 value={district}
@@ -677,29 +679,6 @@ export default function EditProfileStep1Screen() {
                 returnKeyType="done"
                 onSubmitEditing={() => {
                   Keyboard.dismiss();
-                }}
-                onFocus={() => {
-                  // Scroll to ensure the input is visible above keyboard
-                  setTimeout(() => {
-                    if (districtInputContainerRef.current && scrollViewRef.current) {
-                      districtInputContainerRef.current.measureLayout(
-                        scrollViewRef.current as any,
-                        (x, y) => {
-                          // Scroll to show input with padding above
-                          scrollViewRef.current?.scrollTo({
-                            y: Math.max(0, y - 100),
-                            animated: true,
-                          });
-                        },
-                        () => {
-                          // Fallback: scroll to end
-                          scrollViewRef.current?.scrollToEnd({ animated: true });
-                        }
-                      );
-                    } else if (scrollViewRef.current) {
-                      scrollViewRef.current.scrollToEnd({ animated: true });
-                    }
-                  }, 300);
                 }}
               />
             </View>

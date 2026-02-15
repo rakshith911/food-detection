@@ -13,12 +13,12 @@ const appTransform = createTransform(
   },
   // transform state being rehydrated
   (outboundState: any) => {
-    // Always set showSplash to true and showWelcome to false when loading from storage
+    // Show in-app splash (280 logo) on each app open
     if (outboundState && typeof outboundState === 'object') {
       return {
         ...outboundState,
-        showSplash: true, // Always show splash on app start
-        showWelcome: false, // Reset welcome screen
+        showSplash: true,
+        showWelcome: false,
       };
     }
     return outboundState;

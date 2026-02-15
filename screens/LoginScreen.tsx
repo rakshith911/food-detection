@@ -66,6 +66,20 @@ export default function LoginScreen() {
     }
   };
 
+  const handleResendOTP = async () => {
+    const input = authMethod === 'email' ? email : phoneNumber;
+    try {
+      const result = await dispatch(sendOTP({ input, method: authMethod }));
+      if (sendOTP.fulfilled.match(result)) {
+        setOtp('');
+      } else {
+        Alert.alert('Error', 'Failed to resend code. Please try again.');
+      }
+    } catch {
+      Alert.alert('Error', 'Failed to resend code. Please try again.');
+    }
+  };
+
   const handleVerifyOTP = async () => {
     if (!otp.trim()) {
       Alert.alert('Error', 'Please enter the OTP');
@@ -84,10 +98,18 @@ export default function LoginScreen() {
       if (login.fulfilled.match(result)) {
         Alert.alert('Success', 'Login successful!');
       } else {
-        Alert.alert('Error', 'Invalid OTP. Please try again.');
+        Alert.alert(
+          'Invalid OTP',
+          'Invalid OTP. Please try again!',
+          [{ text: 'Resend OTP', onPress: handleResendOTP }]
+        );
       }
     } catch (error) {
-      Alert.alert('Error', 'Something went wrong. Please try again.');
+      Alert.alert(
+        'Invalid OTP',
+        'Invalid OTP. Please try again!',
+        [{ text: 'Resend OTP', onPress: handleResendOTP }]
+      );
     }
   };
 

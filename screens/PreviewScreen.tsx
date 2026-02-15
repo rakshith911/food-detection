@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useEvent, useEventListener } from 'expo';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { addAnalysis, updateAnalysis, updateAnalysisProgress } from '../store/slices/historySlice';
@@ -28,6 +29,36 @@ import OptimizedImage from '../components/OptimizedImage';
 import VectorBackButtonCircle from '../components/VectorBackButtonCircle';
 import AppHeader from '../components/AppHeader';
 import BottomButtonContainer from '../components/BottomButtonContainer';
+
+async function scheduleAnalysisCompleteNotification(mealName: string) {
+  const name = mealName?.trim();
+  if (!name) return;
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') {
+      const { status: newStatus } = await Notifications.requestPermissionsAsync();
+      if (newStatus !== 'granted') return;
+    }
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Analysis',
+        importance: Notifications.AndroidImportance.DEFAULT,
+      });
+    }
+    const body = name === 'Detected Food'
+      ? 'Your analysis for food is ready'
+      : `Your analysis for ${name} is ready`;
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Analysis complete',
+        body,
+      },
+      trigger: null,
+    });
+  } catch (e) {
+    console.warn('[Preview] Notification failed:', e);
+  }
+}
 
 interface PreviewScreenProps {
   imageUri?: string;
@@ -83,61 +114,14 @@ export default function PreviewScreen({ imageUri, videoUri, onBack, onAnalyze }:
   const [textInput, setTextInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentAnalysisId, setCurrentAnalysisId] = useState<string | null>(null);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
   const businessProfile = useAppSelector((state) => state.profile.businessProfile);
   const navigation = useNavigation();
   const textInputRef = useRef<TextInput>(null);
   const scrollViewRef = useRef<ScrollView>(null);
-  const inputContainerRef = useRef<View>(null);
 
-  // Track keyboard visibility so we can reduce gap between button and keyboard
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const showSub = Keyboard.addListener(showEvent, () => setIsKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setIsKeyboardVisible(false));
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
 
-  // Handle keyboard show to scroll to input
-  useEffect(() => {
-    const keyboardDidShowListener = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => {
-        // Scroll to input when keyboard appears
-        setTimeout(() => {
-          if (inputContainerRef.current && scrollViewRef.current) {
-            inputContainerRef.current.measureLayout(
-              scrollViewRef.current as any,
-              (x, y) => {
-                // Scroll to show input with some padding above it
-                scrollViewRef.current?.scrollTo({
-                  y: Math.max(0, y - 100),
-                  animated: true,
-                });
-              },
-              () => {
-                // Fallback: scroll to end to ensure input is visible
-                scrollViewRef.current?.scrollToEnd({ animated: true });
-              }
-            );
-          } else if (scrollViewRef.current) {
-            // If measureLayout fails, just scroll to end
-            scrollViewRef.current.scrollToEnd({ animated: true });
-          }
-        }, 300);
-      }
-    );
-
-    return () => {
-      keyboardDidShowListener.remove();
-    };
-  }, []);
   
   // Use business name as display name, fallback to email if business name not available
   // Only use businessName if it exists and is not empty
@@ -394,6 +378,8 @@ export default function PreviewScreen({ imageUri, videoUri, onBack, onAnalyze }:
 
         if (updateAnalysis.rejected.match(result_action)) {
           console.error('Error updating analysis:', result_action.error);
+        } else {
+          scheduleAnalysisCompleteNotification(analysisResult.mealName ?? '');
         }
       }
 
@@ -438,10 +424,11 @@ export default function PreviewScreen({ imageUri, videoUri, onBack, onAnalyze }:
                 carbs: Number(analysisResult.totalCarbs) || 0,
                 fat: Number(analysisResult.totalFat) || 0,
               },
-              analysisStatus: 'completed',
-              analysisProgress: 100,
-            },
-          }));
+analysisStatus: 'completed',
+            analysisProgress: 100,
+          },
+        }));
+          scheduleAnalysisCompleteNotification(analysisResult.mealName ?? '');
         } else {
           await dispatch(addAnalysis({
             userEmail: user.email,
@@ -461,6 +448,7 @@ export default function PreviewScreen({ imageUri, videoUri, onBack, onAnalyze }:
               analysisProgress: 100,
             },
           }));
+          scheduleAnalysisCompleteNotification(analysisResult.mealName ?? '');
         }
       }
 
@@ -532,7 +520,7 @@ export default function PreviewScreen({ imageUri, videoUri, onBack, onAnalyze }:
               </View>
 
               {/* Text Input Field */}
-              <View ref={inputContainerRef} style={styles.inputContainer}>
+              <View style={styles.inputContainer}>
                 <TextInput
                   ref={textInputRef}
                   style={styles.textInput}
@@ -545,22 +533,7 @@ export default function PreviewScreen({ imageUri, videoUri, onBack, onAnalyze }:
                   placeholderTextColor="#999999"
                   onFocus={() => {
                     setTimeout(() => {
-                      if (inputContainerRef.current && scrollViewRef.current) {
-                        inputContainerRef.current.measureLayout(
-                          scrollViewRef.current as any,
-                          (x, y) => {
-                            scrollViewRef.current?.scrollTo({
-                              y: Math.max(0, y - 100),
-                              animated: true,
-                            });
-                          },
-                          () => {
-                            scrollViewRef.current?.scrollToEnd({ animated: true });
-                          }
-                        );
-                      } else if (scrollViewRef.current) {
-                        scrollViewRef.current.scrollToEnd({ animated: true });
-                      }
+                      scrollViewRef.current?.scrollToEnd({ animated: true });
                     }, 300);
                   }}
                 />

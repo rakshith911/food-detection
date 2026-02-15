@@ -158,7 +158,8 @@ const historySlice = createSlice({
       })
       .addCase(loadHistory.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.history = action.payload;
+        // Deep-clone so we never mutate read-only API/cached objects (avoids "Cannot assign to read-only property")
+        state.history = JSON.parse(JSON.stringify(action.payload));
         state.error = null;
       })
       .addCase(loadHistory.rejected, (state, action) => {
@@ -174,7 +175,7 @@ const historySlice = createSlice({
       })
       .addCase(addAnalysis.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.history.unshift(action.payload); // Add to beginning
+        state.history.unshift(JSON.parse(JSON.stringify(action.payload)));
         state.error = null;
       })
       .addCase(addAnalysis.rejected, (state, action) => {
@@ -220,7 +221,7 @@ const historySlice = createSlice({
       .addCase(updateAnalysis.fulfilled, (state, action) => {
         const index = state.history.findIndex(item => item.id === action.payload.id);
         if (index !== -1) {
-          state.history[index] = action.payload;
+          state.history[index] = JSON.parse(JSON.stringify(action.payload));
         }
         state.error = null;
       })

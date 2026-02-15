@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,6 +9,7 @@ import {
   Platform,
   Alert,
   Image,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -33,17 +34,35 @@ export default function ProfileScreen() {
   // Get avatar and profileImage from Redux
   const avatar = profileState.avatar;
   const profileImage = profileState.profileImage;
+  const [isPickerLoading, setIsPickerLoading] = useState(false);
+  const [hasPhotoPermission, setHasPhotoPermission] = useState<boolean | null>(null);
 
+  // Pre-request photo library permission on mount and cache the result
+  useEffect(() => {
+    (async () => {
+      const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      setHasPhotoPermission(granted);
+    })();
+  }, []);
 
   const selectProfileImage = async () => {
-    try {
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (permissionResult.granted === false) {
-        Alert.alert('Permission Required', 'Please allow access to your photo library');
-        return;
-      }
+    if (isPickerLoading) return;
 
+    // If permission was denied on mount, send to Settings immediately — no delay
+    if (hasPhotoPermission === false) {
+      Alert.alert(
+        'Permission Required',
+        'Photo library access is needed to upload a profile photo. Please enable it in Settings.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+      return;
+    }
+
+    setIsPickerLoading(true);
+    try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -53,16 +72,21 @@ export default function ProfileScreen() {
 
       if (!result.canceled) {
         const imageUri = result.assets[0].uri;
-        
-        // Update profile image via Redux
         await dispatch(updateProfileImage(imageUri));
-        
-        // Clear avatar if profile image is selected
         await dispatch(setAvatarAction(undefined));
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to select image');
+      Alert.alert(
+        'Permission Required',
+        'Photo library access is needed to upload a profile photo. Please enable it in Settings.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+    } finally {
+      setIsPickerLoading(false);
     }
   };
 
@@ -282,8 +306,8 @@ export default function ProfileScreen() {
                   )}
                 </TouchableOpacity>
                 <View style={styles.imageButtonsContainer}>
-                  <TouchableOpacity style={styles.selectImageButton} onPress={selectProfileImage}>
-                    <Text style={styles.selectImageText}>Upload Photo</Text>
+                  <TouchableOpacity style={[styles.selectImageButton, isPickerLoading && { opacity: 0.6 }]} onPress={selectProfileImage} disabled={isPickerLoading}>
+                    <Text style={styles.selectImageText}>{isPickerLoading ? 'Opening...' : 'Upload Photo'}</Text>
                   </TouchableOpacity>
                 </View>
               </View>

@@ -12,8 +12,8 @@ const initialState: AppState = {
   hasConsented: null,
   hasCompletedProfile: null,
   isCheckingConsent: true,
-  showSplash: true, // Always start with splash screen
-  showWelcome: false, // Show welcome screen after splash
+  showSplash: true, // In-app splash with 280 logo (smaller); native splash kept minimal
+  showWelcome: false,
 };
 
 const appSlice = createSlice({
