@@ -361,6 +361,7 @@ class NutritionVideoPipeline:
                 if frame_idx % self.config.DETECTION_INTERVAL == 0:
                     # Video: one-shot only — use precomputed detections at frame 0; never run frame-wise Gemini
                     detection_grams_list = []
+                    detection_calories_list = []
                     if is_video_one_shot_mode and (frame_idx > 0 or initial_video_detections is None):
                         boxes = np.array([])
                         labels = []
@@ -376,6 +377,7 @@ class NutritionVideoPipeline:
                         boxes_ref, labels, detected_caption = unpacked[0], unpacked[1], unpacked[2]
                         detection_grams_list = unpacked[3] if len(unpacked) > 3 else []
                         detection_quantity_list = unpacked[4] if len(unpacked) > 4 else [1] * len(labels)
+                        detection_calories_list = []  # video/multi-image do not return calories yet
                         unquantified_ingredients = []
                         if not detection_grams_list:
                             detection_grams_list = [None] * len(labels)
@@ -401,6 +403,7 @@ class NutritionVideoPipeline:
                     else:
                         # Image or video without one-shot: frame-wise detection (Gemini image or Florence-2)
                         detection_grams_list = []
+                        detection_calories_list = []
                         logger.info(f"[{job_id}] Frame {frame_idx}: Re-detecting objects...")
                         if self.config.USE_GEMINI_DETECTION:
                             print(f"🔍 Detecting objects in frame {frame_idx} (Gemini image understanding)...")
@@ -409,15 +412,23 @@ class NutritionVideoPipeline:
                         sys.stdout.flush()
                         try:
                             if self.config.USE_GEMINI_DETECTION:
-                                boxes, labels, detected_caption, unquantified_ingredients, detection_grams_list, detection_quantity_list = self._detect_objects_gemini(
-                                    frame_pil, job_id
-                                )
+                                gemini_out = self._detect_objects_gemini(frame_pil, job_id)
+                                boxes = gemini_out[0]
+                                labels = gemini_out[1]
+                                detected_caption = gemini_out[2]
+                                unquantified_ingredients = gemini_out[3]
+                                detection_grams_list = gemini_out[4]
+                                detection_quantity_list = gemini_out[5]
+                                detection_calories_list = gemini_out[6] if len(gemini_out) > 6 else []
+                                if len(detection_calories_list) != len(labels):
+                                    detection_calories_list = [None] * len(labels)
                             else:
                                 boxes, labels, detected_caption, unquantified_ingredients = self._detect_objects_florence(
                                     frame_pil, florence_processor, florence_model
                                 )
                                 detection_grams_list = []
                                 detection_quantity_list = [1] * len(labels)
+                                detection_calories_list = []
                             if detected_caption:
                                 caption = detected_caption
                             print(f"✓ Detection complete: found {len(boxes)} objects")
@@ -532,6 +543,8 @@ class NutritionVideoPipeline:
                                     tracked_objects[old_id]['gemini_quantity'] = max(1, int(detection_quantity_list[new_idx]))
                                 except (TypeError, ValueError):
                                     pass
+                            if detection_calories_list and new_idx < len(detection_calories_list) and detection_calories_list[new_idx] is not None:
+                                tracked_objects[old_id]['gemini_kcal'] = float(detection_calories_list[new_idx])
                             boxes_to_add.append(boxes[new_idx])
                             ids_to_add.append(old_id)
                         
@@ -551,6 +564,9 @@ class NutritionVideoPipeline:
                                     quantity = max(1, int(detection_quantity_list[new_idx]))
                                 except (TypeError, ValueError):
                                     quantity = 1
+                            gemini_kcal = None
+                            if detection_calories_list and new_idx < len(detection_calories_list) and detection_calories_list[new_idx] is not None:
+                                gemini_kcal = float(detection_calories_list[new_idx])
                             tracked_objects[obj_id] = {
                                 'box': boxes[new_idx],
                                 'label': labels[new_idx],
@@ -558,7 +574,8 @@ class NutritionVideoPipeline:
                                 'first_seen_frame': frame_idx,
                                 'last_seen_frame': frame_idx,
                                 'gemini_grams': gemini_grams,
-                                'gemini_quantity': quantity
+                                'gemini_quantity': quantity,
+                                'gemini_kcal': gemini_kcal
                             }
                             
                             boxes_to_add.append(boxes[new_idx])
@@ -721,6 +738,7 @@ class NutritionVideoPipeline:
                 
                 gemini_grams_g = None
                 gemini_quantity = 1
+                gemini_kcal = None
                 if obj_id in tracked_objects:
                     g = tracked_objects[obj_id].get('gemini_grams')
                     if g is not None and g > 0:
@@ -728,6 +746,9 @@ class NutritionVideoPipeline:
                     q = tracked_objects[obj_id].get('gemini_quantity')
                     if q is not None and q >= 1:
                         gemini_quantity = int(q)
+                    k = tracked_objects[obj_id].get('gemini_kcal')
+                    if k is not None and k > 0:
+                        gemini_kcal = float(k)
                 # Store for batch validation
                 items_for_validation.append({
                     'obj_id': obj_id,
@@ -740,7 +761,8 @@ class NutritionVideoPipeline:
                     'heights': heights,
                     'areas': areas,
                     'gemini_grams_g': gemini_grams_g,
-                    'gemini_quantity': gemini_quantity
+                    'gemini_quantity': gemini_quantity,
+                    'gemini_kcal': gemini_kcal
                 })
                 
                 objects_with_volume.add(obj_id)
@@ -758,13 +780,16 @@ class NutritionVideoPipeline:
                 gemini_grams_g = float(g) if g is not None and g > 0 else None
                 q = obj_data.get('gemini_quantity')
                 gemini_quantity = max(1, int(q)) if q is not None and q >= 1 else 1
+                k = obj_data.get('gemini_kcal')
+                gemini_kcal = float(k) if k is not None and k > 0 else None
                 untracked_items.append({
                     'obj_id': obj_id,
                     'label': label,
                     'area_cm2': area_cm2,
                     'box': box,
                     'gemini_grams_g': gemini_grams_g,
-                    'gemini_quantity': gemini_quantity
+                    'gemini_quantity': gemini_quantity,
+                    'gemini_kcal': gemini_kcal
                 })
         
         # Batch process: Validate calculated volumes + Estimate untracked volumes in ONE Gemini call
@@ -802,6 +827,8 @@ class NutritionVideoPipeline:
                 stats['quantity'] = int(item['gemini_quantity'])
             else:
                 stats['quantity'] = 1
+            if item.get('gemini_kcal') is not None and item['gemini_kcal'] > 0:
+                stats['gemini_kcal'] = float(item['gemini_kcal'])
             obj_entry = {'label': label, 'statistics': stats}
             if obj_id in tracked_objects:
                 obj_entry['obj_id'] = obj_id
@@ -835,6 +862,8 @@ class NutritionVideoPipeline:
                 stats['quantity'] = int(item['gemini_quantity'])
             else:
                 stats['quantity'] = 1
+            if item.get('gemini_kcal') is not None and item['gemini_kcal'] > 0:
+                stats['gemini_kcal'] = float(item['gemini_kcal'])
             obj_entry = {'label': label, 'statistics': stats}
             if obj_id in tracked_objects:
                 obj_entry['obj_id'] = obj_id
@@ -954,15 +983,16 @@ class NutritionVideoPipeline:
             "2. VISIBLE INGREDIENTS WITH LOCATIONS: List all visible ingredients/components (garnishes, sides, sauces). "
             "For each visible food item provide bounding box [x_min, y_min, x_max, y_max], estimated_quantity_grams, and quantity (count).\n"
             f"Image dimensions: {img_width} x {img_height} pixels. Bounding boxes in pixels (0 to width/height).\n"
-            "estimated_quantity_grams: TOTAL edible mass in grams for that item. When there are multiple identical pieces (e.g. 6 kiwi slices, several grapes), use ONE entry with quantity set to the count and estimated_quantity_grams as the TOTAL mass for all of them.\n"
-            "quantity: integer count of identical items (e.g. 6 for six kiwi slices, 1 for a single fish fillet). Always include; use 1 for a single portion.\n"
-            "Use realistic typical weights (e.g. one fish fillet 80–120g, sauce 40–80g, six kiwi slices ~120g total). "
-            "Each item must have a DIFFERENT value reflecting its apparent portion size; do not repeat the same value for all items.\n"
+            "estimated_quantity_grams: TOTAL edible mass in grams for that item. When there are multiple identical pieces (e.g. 6 kiwi slices, grapes, almonds), use ONE entry with quantity set to the count and estimated_quantity_grams as the TOTAL mass for all of them.\n"
+            "quantity: integer count of identical items. For small countable items (nuts, almonds, berries, grapes, cherry tomatoes, etc.) COUNT EVERY visible piece and set quantity to that exact total (e.g. 15 almonds -> quantity 15, one entry with a bounding box around the whole portion; ~1g per almond). Do not underestimate: if you see 15 almonds, use quantity 15.\n"
+            "Use realistic typical weights (e.g. one fish fillet 80–120g, sauce 40–80g, 15 almonds ~15g total, six kiwi slices ~120g). "
+            "Different ingredients should have different estimated_quantity_grams; for the same ingredient with many pieces use one entry and total mass.\n"
             "3. INGREDIENT BREAKDOWN, 4. NUTRITIONAL INFORMATION, 5. ADDITIONAL NOTES.\n\n"
             "Format as JSON: main_food_item, cuisine_type, cooking_method, "
-            "visible_ingredients (array of {name, bounding_box [x_min,y_min,x_max,y_max], estimated_quantity_grams, quantity}), "
+            "visible_ingredients (array of {name, bounding_box [x_min,y_min,x_max,y_max], estimated_quantity_grams, quantity, estimated_total_kcal}), "
             "ingredient_breakdown, nutritional_info, allergens, dietary_tags, additional_notes.\n"
-            "Example: [{\"name\": \"fish fillet\", \"bounding_box\": [100,50,300,250], \"estimated_quantity_grams\": 95, \"quantity\": 1}, {\"name\": \"Kiwi Slices\", \"bounding_box\": [50,400,200,500], \"estimated_quantity_grams\": 120, \"quantity\": 6}]. "
+            "estimated_total_kcal: total calories in kcal for that food item (use typical values, e.g. 15 almonds ~90 kcal, fish fillet ~120 kcal).\n"
+            "Example: [{\"name\": \"fish fillet\", \"bounding_box\": [100,50,300,250], \"estimated_quantity_grams\": 95, \"quantity\": 1, \"estimated_total_kcal\": 120}, {\"name\": \"almonds\", \"bounding_box\": [50,400,280,520], \"estimated_quantity_grams\": 15, \"quantity\": 15, \"estimated_total_kcal\": 90}]. "
             "Output only valid JSON (you may wrap in ```json)."
         )
         # Try multiple models (404 if model name not available in this API version)
@@ -1008,6 +1038,7 @@ class NutritionVideoPipeline:
         labels = []
         grams_list = []
         quantity_list = []
+        calories_list = []
         for ing in visible:
             bbox = ing.get("bounding_box")
             name = (ing.get("name") or "").strip()
@@ -1030,6 +1061,11 @@ class NutritionVideoPipeline:
                 quantity_list.append(max(1, int(q)) if q is not None else 1)
             except (TypeError, ValueError):
                 quantity_list.append(1)
+            k = ing.get("estimated_total_kcal")
+            try:
+                calories_list.append(float(k) if k is not None and float(k) > 0 else None)
+            except (TypeError, ValueError):
+                calories_list.append(None)
             boxes.append([x_min, y_min, x_max, y_max])
             labels.append(name)
         caption = data.get("main_food_item") or ""
@@ -1038,7 +1074,7 @@ class NutritionVideoPipeline:
         boxes = np.array(boxes, dtype=np.float32) if boxes else np.array([])
         print(f"  ✓ Gemini detection: {len(labels)} objects")
         sys.stdout.flush()
-        return boxes, labels, caption, [], grams_list, quantity_list
+        return boxes, labels, caption, [], grams_list, quantity_list, calories_list
     
     def _detect_objects_gemini_multi_image(self, frames_list: List[np.ndarray], job_id: str):
         """
@@ -1070,15 +1106,15 @@ class NutritionVideoPipeline:
             "2. VISIBLE INGREDIENTS WITH LOCATIONS: List all visible ingredients/components (garnishes, sides, sauces). "
             "For each visible food item provide bounding box [x_min, y_min, x_max, y_max], estimated_quantity_grams, and quantity (count).\n"
             f"Image dimensions (first image): {img_width} x {img_height} pixels. Bounding boxes in pixels (0 to width/height).\n"
-            "estimated_quantity_grams: TOTAL edible mass in grams for that item. When there are multiple identical pieces (e.g. 6 kiwi slices, several grapes), use ONE entry with quantity set to the count and estimated_quantity_grams as the TOTAL mass for all of them.\n"
-            "quantity: integer count of identical items (e.g. 6 for six kiwi slices, 1 for a single fish fillet). Always include; use 1 for a single portion.\n"
-            "Use realistic typical weights (e.g. one fish fillet 80–120g, sauce 40–80g, six kiwi slices ~120g total). "
-            "Each item must have a DIFFERENT value reflecting its apparent portion size; do not repeat the same value for all items.\n"
+            "estimated_quantity_grams: TOTAL edible mass in grams for that item. When there are multiple identical pieces (e.g. 6 kiwi slices, grapes, almonds), use ONE entry with quantity set to the count and estimated_quantity_grams as the TOTAL mass for all of them.\n"
+            "quantity: For small countable items (nuts, almonds, berries, grapes, etc.) COUNT EVERY visible piece and set quantity to that exact total (e.g. 15 almonds -> quantity 15). Do not underestimate.\n"
+            "Use realistic typical weights (e.g. one fish fillet 80–120g, 15 almonds ~15g total, six kiwi slices ~120g). "
+            "Different ingredients should have different estimated_quantity_grams; for the same ingredient with many pieces use one entry and total mass.\n"
             "3. INGREDIENT BREAKDOWN, 4. NUTRITIONAL INFORMATION, 5. ADDITIONAL NOTES.\n\n"
             "Format as JSON: main_food_item, cuisine_type, cooking_method, "
             "visible_ingredients (array of {name, bounding_box [x_min,y_min,x_max,y_max], estimated_quantity_grams, quantity}), "
             "ingredient_breakdown, nutritional_info, allergens, dietary_tags, additional_notes.\n"
-            "Example: [{\"name\": \"fish fillet\", \"bounding_box\": [100,50,300,250], \"estimated_quantity_grams\": 95, \"quantity\": 1}]. "
+            "Example: [{\"name\": \"fish fillet\", \"bounding_box\": [100,50,300,250], \"estimated_quantity_grams\": 95, \"quantity\": 1}, {\"name\": \"almonds\", \"bounding_box\": [50,400,280,520], \"estimated_quantity_grams\": 15, \"quantity\": 15}]. "
             "Output only valid JSON (you may wrap in ```json)."
         )
         try:
@@ -3814,14 +3850,44 @@ Example:
             if any(keyword in label.lower() for keyword in skip_keywords):
                 continue
             
-            # Use Gemini-provided mass (grams) when available; otherwise RAG uses volume
             gemini_grams_g = item_data['statistics'].get('gemini_grams_g')
+            gemini_kcal = item_data['statistics'].get('gemini_kcal')
             quantity = item_data['statistics'].get('quantity', 1)
             if quantity is None or quantity < 1:
                 quantity = 1
-            nutrition = rag.get_nutrition_for_food(label, max_volume, mass_g=gemini_grams_g, quantity=quantity)
-            nutrition_items.append(nutrition)
             
+            # When we have both mass and calories from Gemini, use them and skip RAG
+            if gemini_kcal is not None and gemini_kcal > 0 and gemini_grams_g is not None and gemini_grams_g > 0:
+                mass_g = float(gemini_grams_g)
+                total_kcal = float(gemini_kcal)
+                calories_per_100g = (total_kcal / mass_g) * 100.0 if mass_g else 0.0
+                q = max(1, int(quantity))
+                display_name = f"{q} × {label}" if q > 1 else label
+                nutrition = {
+                    'food_name': label,
+                    'quantity': q,
+                    'volume_ml': max_volume,
+                    'density_g_per_ml': 0.0,
+                    'density_source': 'gemini',
+                    'density_similarity': 1.0,
+                    'mass_g': mass_g,
+                    'calories_per_100g': calories_per_100g,
+                    'total_calories': total_kcal,
+                    'calorie_source': 'gemini',
+                    'calorie_similarity': 1.0,
+                    'matched_food': label
+                }
+                logger.info(f"[{job_id}] Using Gemini nutrition for '{display_name}': {mass_g:.1f}g, {total_kcal:.0f} kcal (no RAG)")
+            else:
+                # Use RAG: Gemini mass when available; calories from RAG unless we have gemini_kcal
+                nutrition = rag.get_nutrition_for_food(label, max_volume, mass_g=gemini_grams_g, quantity=quantity)
+                if gemini_kcal is not None and gemini_kcal > 0:
+                    nutrition['total_calories'] = float(gemini_kcal)
+                    nutrition['calorie_source'] = 'gemini'
+                    if nutrition.get('mass_g') and nutrition['mass_g'] > 0:
+                        nutrition['calories_per_100g'] = (float(gemini_kcal) / nutrition['mass_g']) * 100.0
+            
+            nutrition_items.append(nutrition)
             total_food_volume += max_volume
             total_mass += nutrition['mass_g']
             total_calories += nutrition['total_calories']
