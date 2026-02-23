@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView, StatusBar, Alert, LayoutAnimation, Platform, UIManager, Animated, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
@@ -14,10 +14,54 @@ import type { AnalysisEntry } from '../store/slices/historySlice';
 import ScreenLoader from '../components/ScreenLoader';
 import { useImageLoadTracker } from '../hooks/useImageLoadTracker';
 import ImageWithLoader from '../components/ImageWithLoader';
+import { getImagePresignedUrl } from '../services/S3UserDataService';
 import AppHeader from '../components/AppHeader';
 import BottomButtonContainer from '../components/BottomButtonContainer';
 import TutorialScreen from './TutorialScreen';
 import CircularProgressBar from '../components/CircularProgressBar';
+
+// Image component that falls back to S3 presigned URL when the local file is unavailable (e.g. after reinstall)
+function HistoryCardImage({
+  imageUri,
+  jobId,
+  style,
+  onImageLoad,
+  onImageError,
+}: {
+  imageUri: string;
+  jobId?: string;
+  style: any;
+  onImageLoad: () => void;
+  onImageError: () => void;
+}) {
+  const [uri, setUri] = useState(imageUri);
+  const hasTriedS3 = useRef(false);
+
+  const handleError = useCallback(async () => {
+    // Image was already uploaded to S3 during analysis — retrieve it by job_id
+    if (jobId && !hasTriedS3.current) {
+      hasTriedS3.current = true;
+      try {
+        const s3Url = await getImagePresignedUrl(jobId);
+        if (s3Url) {
+          setUri(s3Url);
+          return; // Retry with S3 URL; don't propagate error yet
+        }
+      } catch {}
+    }
+    onImageError();
+  }, [jobId, onImageError]);
+
+  return (
+    <ImageWithLoader
+      source={{ uri }}
+      style={style}
+      resizeMode="cover"
+      onImageLoad={onImageLoad}
+      onImageError={handleError}
+    />
+  );
+}
 
 // SVG Icon Component
 const Group2065Icon = ({ width = 28, height = 28 }: { width?: number; height?: number }) => (
@@ -133,13 +177,7 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
     }
   }, [user?.email, dispatch]);
 
-  // Load profile ONLY if not already loaded (separate from history)
-  useEffect(() => {
-    if (user?.email && !businessProfile && !isProfileLoading) {
-      dispatch(loadProfile());
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.email, dispatch]);
+  // Profile is loaded by App.tsx — no dispatch needed here
 
   // Track if history is currently loading (from App.tsx)
   useEffect(() => {
@@ -422,14 +460,14 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
                 )}
               </>
             ) : item.imageUri ? (
-              <ImageWithLoader
-                source={{ uri: item.imageUri }} 
-                style={styles.media} 
-                resizeMode="cover"
+              <HistoryCardImage
+                imageUri={item.imageUri}
+                jobId={item.job_id}
+                style={styles.media}
                 onImageLoad={handleImageLoad}
                 onImageError={() => {
                   console.log('[Results] Image load error for:', item.id);
-                  handleImageLoad(); // Still count as loaded to not block forever
+                  handleImageLoad();
                 }}
               />
             ) : (
@@ -496,9 +534,6 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
   const historyNotReadyYet = isInitialLoad.current && (!hasLoadedHistory.current || isLoading);
   
   const shouldShowLoader = !user?.email ||
-                           !businessProfile ||
-                           !businessProfile.businessName ||
-                           !profileBelongsToCurrentUser ||
                            emailChanged ||
                            historyNotReadyYet ||
                            (history.length === 0 && !canShowTutorial) ||

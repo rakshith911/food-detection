@@ -179,7 +179,7 @@ export default function PreviewScreen({ imageUri, videoUri, onBack, onAnalyze }:
         if (addAnalysis.fulfilled.match(result_action)) {
           analysisId = result_action.payload.id;
           setCurrentAnalysisId(analysisId);
-          
+
           // Navigate to Results page immediately after creating the entry
           // Analysis will continue in background and update progress on the card via Redux
           // Use setTimeout to ensure navigation happens after Redux state update

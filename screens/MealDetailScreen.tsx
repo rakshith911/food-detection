@@ -27,6 +27,7 @@ import { useAppSelector, useAppDispatch } from '../store/hooks';
 import type { AnalysisEntry, DishContent, SegmentedImages } from '../store/slices/historySlice';
 import { updateAnalysis } from '../store/slices/historySlice';
 import { nutritionAnalysisAPI } from '../services/NutritionAnalysisAPI';
+import { getImagePresignedUrl } from '../services/S3UserDataService';
 import VectorBackButtonCircle from '../components/VectorBackButtonCircle';
 import OptimizedImage from '../components/OptimizedImage';
 import AppHeader from '../components/AppHeader';
@@ -96,6 +97,19 @@ export default function MealDetailScreen() {
   const [refreshedSegmentedImages, setRefreshedSegmentedImages] = useState<SegmentedImages | null>(null);
   const [refreshingOverlay, setRefreshingOverlay] = useState(false);
   const [mediaLoading, setMediaLoading] = useState(true);
+  // Resolved image URI: falls back to S3 presigned URL when the local file is from another device
+  const [resolvedImageUri, setResolvedImageUri] = useState<string | undefined>(item?.imageUri);
+
+  useEffect(() => {
+    // Image was already uploaded to S3 during analysis — retrieve it by job_id
+    if (item?.job_id && item?.imageUri?.startsWith('file://')) {
+      getImagePresignedUrl(item.job_id)
+        .then(url => { if (url) setResolvedImageUri(url); })
+        .catch(() => {});
+    } else {
+      setResolvedImageUri(item?.imageUri);
+    }
+  }, [item?.id, item?.job_id, item?.imageUri]);
   
   // Effective overlay: use refreshed URLs if we got them, else stored
   const effectiveSegmentedImages = refreshedSegmentedImages ?? item?.segmented_images;
@@ -500,8 +514,8 @@ export default function MealDetailScreen() {
             const isVideo = !!item.videoUri;
             const hasOverlay = !overlayLoadFailed && effectiveSegmentedImages?.overlay_urls && effectiveSegmentedImages.overlay_urls.length > 0;
             const overlayUrl = hasOverlay ? effectiveSegmentedImages!.overlay_urls![0].url : null;
-            const displayUri = overlayUrl || item.imageUri || null;
-            const showImageLoader = !isVideo && (!!displayUri || !!item.imageUri);
+            const displayUri = overlayUrl || resolvedImageUri || null;
+            const showImageLoader = !isVideo && (!!displayUri || !!resolvedImageUri);
             return (
           <>
           {isVideo && item.videoUri ? (
@@ -564,7 +578,7 @@ export default function MealDetailScreen() {
                   />
                 ) : (
                   <OptimizedImage
-                    source={{ uri: item.imageUri! }}
+                    source={{ uri: resolvedImageUri! }}
                     style={styles.media}
                     resizeMode="cover"
                     cachePolicy="memory-disk"
@@ -573,17 +587,17 @@ export default function MealDetailScreen() {
                   />
                 )}
               </TouchableOpacity>
-            ) : item.imageUri ? (
+            ) : resolvedImageUri ? (
               <TouchableOpacity
                 style={styles.mediaTouchable}
                 activeOpacity={1}
                 onPress={() => {
-                  setFullImageUri(item.imageUri!);
+                  setFullImageUri(resolvedImageUri!);
                   setShowFullImageModal(true);
                 }}
               >
                 <OptimizedImage
-                  source={{ uri: item.imageUri }}
+                  source={{ uri: resolvedImageUri }}
                   style={styles.media}
                   resizeMode="cover"
                   cachePolicy="memory-disk"
@@ -626,7 +640,7 @@ export default function MealDetailScreen() {
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>
-                  {overlayImageUrl === item.imageUri ? 'Original Image' : 'Segmentation Overlay'}
+                  {overlayImageUrl === resolvedImageUri ? 'Original Image' : 'Segmentation Overlay'}
                 </Text>
                 <TouchableOpacity
                   onPress={() => setShowSegmentationOverlay(false)}

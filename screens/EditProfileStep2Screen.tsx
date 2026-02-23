@@ -140,19 +140,7 @@ export default function EditProfileStep2Screen() {
     selectedList: [],
   });
 
-  // Load profile data from Redux when screen is focused
-  // Only load if profile is not already loaded to avoid triggering AppLoader
-  useFocusEffect(
-    useCallback(() => {
-      // Only load profile if it's not already loaded to prevent App from showing AppLoader
-      if (!profileState.businessProfile && !profileState.isLoading) {
-        console.log('[EditProfileStep2] Profile not loaded, loading now...');
-        dispatch(loadProfile());
-      } else {
-        console.log('[EditProfileStep2] Profile already loaded, skipping loadProfile');
-      }
-    }, [dispatch, profileState.businessProfile, profileState.isLoading])
-  );
+  // Profile is loaded by App.tsx on login — no need to dispatch here
 
   // Helper: parse profile string (single or comma-separated) into value + selectedList for MultiSelect
   const parseProfileMultiSelect = useCallback(

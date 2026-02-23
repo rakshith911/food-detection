@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AnalysisEntry } from '../store/slices/historySlice';
+import { saveHistoryToS3, loadHistoryFromS3 } from './S3UserDataService';
 
 // Mock API base URL - replace with your actual backend URL
 const API_BASE_URL = 'https://your-backend-api.com/api';
@@ -302,6 +303,74 @@ class MockHistoryAPI extends HistoryAPI {
   }
 }
 
-// Export the mock API for now - replace with real API when backend is ready
-export const historyAPI = new MockHistoryAPI();
+// S3-backed API: reads from S3 on first load (cross-device), writes locally then syncs to S3
+class S3HistoryAPI {
+  private local = new MockHistoryAPI();
+
+  async getHistory(userEmail: string): Promise<APIResponse<AnalysisEntry[]>> {
+    try {
+      const s3History = await loadHistoryFromS3(userEmail);
+      if (s3History && s3History.length > 0) {
+        console.log(`[S3History] Loaded ${s3History.length} entries from S3 for ${userEmail}`);
+        // Populate local AsyncStorage so writes on this device include full history
+        const stored = await AsyncStorage.getItem('mockHistoryData');
+        const mockData = stored ? JSON.parse(stored) : {};
+        if (!mockData[userEmail] || mockData[userEmail].length === 0) {
+          mockData[userEmail] = s3History;
+          await AsyncStorage.setItem('mockHistoryData', JSON.stringify(mockData));
+          this.local = new MockHistoryAPI(); // re-init so it picks up the populated data
+        }
+      } else {
+        // S3 is empty — push existing local data up to S3 (first-time migration)
+        this.syncToS3(userEmail);
+      }
+    } catch {
+      // S3 unavailable — fall through to local
+    }
+    return this.local.getHistory(userEmail);
+  }
+
+  async saveAnalysis(userEmail: string, analysis: Omit<AnalysisEntry, 'id' | 'timestamp'>): Promise<APIResponse<AnalysisEntry>> {
+    const result = await this.local.saveAnalysis(userEmail, analysis);
+    if (result.success) this.syncToS3(userEmail);
+    return result;
+  }
+
+  async updateAnalysis(userEmail: string, analysisId: string, updates: Partial<AnalysisEntry>): Promise<APIResponse<AnalysisEntry>> {
+    const result = await this.local.updateAnalysis(userEmail, analysisId, updates);
+    if (result.success) this.syncToS3(userEmail);
+    return result;
+  }
+
+  async deleteAnalysis(userEmail: string, analysisId: string): Promise<APIResponse<void>> {
+    const result = await this.local.deleteAnalysis(userEmail, analysisId);
+    if (result.success) this.syncToS3(userEmail);
+    return result;
+  }
+
+  async clearHistory(userEmail: string): Promise<APIResponse<void>> {
+    const result = await this.local.clearHistory(userEmail);
+    if (result.success) saveHistoryToS3(userEmail, []).catch(() => {});
+    return result;
+  }
+
+  // Read directly from AsyncStorage (no delay) and push to S3
+  private syncToS3(userEmail: string) {
+    console.log(`[S3History] 🔄 Starting S3 sync for ${userEmail}`);
+    AsyncStorage.getItem('mockHistoryData')
+      .then(stored => {
+        const mockData = stored ? JSON.parse(stored) : {};
+        const history: AnalysisEntry[] = mockData[userEmail] || [];
+        console.log(`[S3History] Syncing ${history.length} entries to S3...`);
+        return saveHistoryToS3(userEmail, history);
+      })
+      .then(ok => {
+        if (ok) console.log(`[S3History] ✅ Synced history to S3 for ${userEmail}`);
+        else console.warn(`[S3History] ⚠️ S3 sync returned false (Lambda rejected it)`);
+      })
+      .catch(e => console.warn('[S3History] ⚠️ S3 sync error:', e));
+  }
+}
+
+export const historyAPI = new S3HistoryAPI();
 export default historyAPI;

@@ -178,6 +178,7 @@ function RootNavigator() {
   const [hasCompletedProfile, setHasCompletedProfile] = useState<boolean | null>(null);
   const [isCheckingConsent, setIsCheckingConsent] = useState(true);
   const previousAuthState = useRef<boolean>(isAuthenticated);
+  const hasShownMainApp = useRef(false); // Once true, never show AppLoader for profile loading again
 
   // Load history and profile when user logs in
   useEffect(() => {
@@ -404,13 +405,16 @@ function RootNavigator() {
   const profileBelongsToCurrentUser = userAccount?.email === user?.email;
   const hasValidProfile = businessProfile && businessProfile.businessName && profileBelongsToCurrentUser;
 
-  if (isProfileLoading) {
+  if (isProfileLoading && !hasShownMainApp.current) {
     console.log('[App] ⏳ Profile is loading...', {
       isProfileLoading,
       userEmail: user?.email,
     });
     return <AppLoader />;
   }
+
+  // Mark that the main app has been shown — suppress AppLoader for future profile loads
+  hasShownMainApp.current = true;
 
   if (!hasValidProfile) {
     console.log('[App] ⚠️ Profile not ready but allowing app to show (ResultsScreen will handle)', {

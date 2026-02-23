@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from 'react-native';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { dynamoDBService, BusinessProfile as DynamoDBProfile } from './DynamoDBService';
+import { saveProfileToS3, loadProfileFromS3 } from './S3UserDataService';
 
 // 🔧 CONFIGURATION: Storage mode
 // Set to 'local' for AsyncStorage (development) or 'dynamodb' for AWS DynamoDB (production)
@@ -108,7 +109,26 @@ class UserService {
         if (accountString) {
           return JSON.parse(accountString);
         }
-        return null;
+
+        // Local is empty (new device / reinstall) — check Cognito + S3
+        try {
+          const cognitoUser = await getCurrentUser();
+          const email = (cognitoUser.signInDetails?.loginId as string | undefined) || cognitoUser.username;
+          let hasCompletedProfile = false;
+          try {
+            const s3Profile = await loadProfileFromS3(email);
+            if (s3Profile && (s3Profile as any).hasCompletedProfile) {
+              hasCompletedProfile = true;
+              await AsyncStorage.setItem(this.USER_PROFILE_KEY, JSON.stringify(s3Profile));
+              await AsyncStorage.setItem('business_profile_completed', 'true');
+            }
+          } catch { /* S3 not available */ }
+          const account: UserAccount = { userId: cognitoUser.userId, email, createdAt: Date.now(), hasCompletedProfile };
+          await AsyncStorage.setItem(this.USER_ACCOUNT_KEY, JSON.stringify(account));
+          return account;
+        } catch {
+          return null;
+        }
       }
     } catch (error) {
       console.error('[UserService] Error getting user account:', error);
@@ -166,8 +186,15 @@ class UserService {
         await AsyncStorage.setItem(this.USER_ACCOUNT_KEY, JSON.stringify(updatedAccount));
         await AsyncStorage.setItem(this.USER_PROFILE_KEY, JSON.stringify(profileData));
         await AsyncStorage.setItem('business_profile_completed', 'true');
-        
         console.log('[UserService] ✅ Profile saved to local storage successfully');
+
+        // Sync to S3 in background (fire-and-forget)
+        saveProfileToS3(account.email, { ...profileData, hasCompletedProfile: true })
+          .then(ok => {
+            if (ok) console.log('[UserService] ✅ Profile synced to S3');
+            else console.warn('[UserService] ⚠️ Profile S3 sync returned false');
+          })
+          .catch(e => console.warn('[UserService] ⚠️ Profile S3 sync error:', e));
       }
       
       console.log('[UserService] Profile data:', profileData);
@@ -217,8 +244,25 @@ class UserService {
         // Get from local storage
         const profileString = await AsyncStorage.getItem(this.USER_PROFILE_KEY);
         if (profileString) {
-          return JSON.parse(profileString);
+          const profile = JSON.parse(profileString);
+          // Opportunistically sync to S3 if not already there (fire-and-forget)
+          loadProfileFromS3(account.email).then(existing => {
+            if (!existing) {
+              saveProfileToS3(account.email, { ...profile, hasCompletedProfile: true })
+                .then(ok => { if (ok) console.log('[UserService] ✅ Back-filled profile to S3'); })
+                .catch(() => {});
+            }
+          }).catch(() => {});
+          return profile;
         }
+        // Not in local (new device) — try S3
+        try {
+          const s3Profile = await loadProfileFromS3(account.email);
+          if (s3Profile) {
+            await AsyncStorage.setItem(this.USER_PROFILE_KEY, JSON.stringify(s3Profile));
+            return s3Profile as BusinessProfile;
+          }
+        } catch { /* S3 not available */ }
         return null;
       }
     } catch (error) {

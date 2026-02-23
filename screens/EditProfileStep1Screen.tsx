@@ -90,23 +90,7 @@ export default function EditProfileStep1Screen() {
     })();
   }, []);
 
-  // Load profile data from Redux when screen is focused
-  // Only load if profile is not already loaded to avoid triggering AppLoader
-  useFocusEffect(
-    React.useCallback(() => {
-      try {
-        // Only load profile if it's not already loaded to prevent App from showing AppLoader
-        if (!profileState.businessProfile && !profileState.isLoading) {
-          console.log('[EditProfileStep1] Profile not loaded, loading now...');
-          dispatch(loadProfile());
-        } else {
-          console.log('[EditProfileStep1] Profile already loaded, skipping loadProfile');
-        }
-      } catch (error) {
-        console.error('[EditProfileStep1] Error loading profile in useFocusEffect:', error);
-      }
-    }, [dispatch, profileState.businessProfile, profileState.isLoading])
-  );
+  // Profile is loaded by App.tsx on login — no need to dispatch here
 
   // Load existing business profile data
   useEffect(() => {
