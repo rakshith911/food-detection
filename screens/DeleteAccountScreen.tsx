@@ -9,6 +9,7 @@ import {
   Platform,
   TouchableWithoutFeedback,
   Keyboard,
+  KeyboardAvoidingView,
   StatusBar,
   ScrollView,
 } from 'react-native';
@@ -26,37 +27,14 @@ export default function DeleteAccountScreen() {
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
   const authError = useAppSelector((state) => state.auth.error);
-  const isDeleting = useAppSelector((state) => state.auth.isLoading);
-
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [isSendingOTP, setIsSendingOTP] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const inputRefs = useRef<Array<TextInput | null>>([]);
-
-  // Track keyboard visibility so button sits just above keyboard
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSub = Keyboard.addListener(showEvent, (e) => {
-      setIsKeyboardVisible(true);
-      setKeyboardHeight(e.endCoordinates?.height ?? 0);
-    });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setIsKeyboardVisible(false);
-      setKeyboardHeight(0);
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
 
   useEffect(() => {
     if (!user?.email) return;
@@ -135,6 +113,7 @@ export default function DeleteAccountScreen() {
   const validateOTP = async (enteredOtp: string) => {
     if (!user?.email) return;
 
+    setIsVerifying(true);
     try {
       const result = await dispatch(
         verifyDeleteAccountOTPAndDelete({ email: user.email, otp: enteredOtp })
@@ -147,124 +126,131 @@ export default function DeleteAccountScreen() {
       captureException(error instanceof Error ? error : new Error(String(error)), {
         context: 'DeleteAccount - Verify OTP',
       });
-      setErrorMessage('Sorry! This is not a valid OTP. Please try again.');
       setOtp(['', '', '', '', '', '']);
-      inputRefs.current[0]?.focus();
+      Alert.alert(
+        'Invalid OTP',
+        'This is not a valid OTP.',
+        [
+          {
+            text: 'Try Again',
+            style: 'cancel',
+            onPress: () => inputRefs.current[0]?.focus(),
+          },
+          {
+            text: 'Resend OTP',
+            onPress: () => handleSendOTP(),
+          },
+        ]
+      );
+    } finally {
+      setIsVerifying(false);
     }
   };
-
-  const Content = (
-    <TouchableWithoutFeedback
-      onPress={() => Keyboard.dismiss()}
-      style={{ height: '100%' }}
-    >
-      <View style={{ flex: 1 }}>
-        {/* Header */}
-        <View style={styles.header}>
-          <VectorBackButton onPress={() => navigation.goBack()} />
-          <Text style={styles.headerTitle}>Delete Account</Text>
-          <View style={{ width: 40 }} />
-        </View>
-
-        {/* Content - extra bottom padding when keyboard open so OTP can scroll up */}
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: 100 + (isKeyboardVisible ? keyboardHeight : 0) },
-          ]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          decelerationRate="normal"
-          bounces={true}
-          scrollEventThrottle={16}
-          overScrollMode="never"
-          nestedScrollEnabled={true}
-        >
-          <View style={styles.content}>
-            <View style={styles.contentInner}>
-              {/* OTP Input */}
-              <View style={styles.otpContainer}>
-                {[0, 1, 2, 3, 4, 5].map((index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.otpInputWrapper,
-                      (focusedIndex === index || otp[index]) && styles.otpInputWrapperFocused,
-                      errorMessage !== '' && styles.otpInputWrapperError,
-                    ]}
-                  >
-                    <TextInput
-                      ref={(ref) => {
-                        inputRefs.current[index] = ref;
-                      }}
-                      style={styles.otpInput}
-                      value={otp[index]}
-                      onChangeText={(value) => handleOTPChange(value, index)}
-                      onKeyPress={(e) => handleKeyPress(e, index)}
-                      onFocus={() => setFocusedIndex(index)}
-                      onBlur={() => setFocusedIndex(null)}
-                      keyboardType="number-pad"
-                      maxLength={1}
-                      selectTextOnFocus
-                      editable={!isDeleting}
-                    />
-                  </View>
-                ))}
-              </View>
-
-              {/* Instructions - Below OTP boxes */}
-              <View style={styles.instructionsContainer}>
-                {errorMessage === '' && (
-                  <Text style={styles.instructionsText}>
-                    Please check your email and enter the verification code
-                  </Text>
-                )}
-              </View>
-
-              {/* Error Message */}
-              {errorMessage !== '' && (
-                <Text style={styles.errorText}>{errorMessage}</Text>
-              )}
-            </View>
-          </View>
-        </ScrollView>
-
-        {/* Resend OTP Button - Positioned exactly above keyboard (no KAV, use measured height) */}
-        <BottomButtonContainer
-          compactBottom={isKeyboardVisible}
-          keyboardHeight={keyboardHeight}
-        >
-          <CustomButton
-            variant={resendCooldown === 0 && !isSendingOTP ? 'primary' : 'disabled'}
-            btnLabel={
-              isSendingOTP ? (
-                'Sending...'
-              ) : resendCooldown === 0 ? (
-                'Resend One-Time-Password (OTP)'
-              ) : (
-                `Resend One-Time-Password (${resendCooldown} sec)`
-              )
-            }
-            onPress={handleSendOTP}
-          />
-        </BottomButtonContainer>
-
-        {/* Loading Overlay */}
-        {isDeleting && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#7BA21B" />
-          </View>
-        )}
-      </View>
-    </TouchableWithoutFeedback>
-  );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      {Content}
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
+          <View style={{ flex: 1 }}>
+            {/* Header */}
+            <View style={styles.header}>
+              <VectorBackButton onPress={() => navigation.goBack()} />
+              <Text style={styles.headerTitle}>Delete Account</Text>
+              <View style={{ width: 40 }} />
+            </View>
+
+            <ScrollView
+              style={styles.scrollView}
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              decelerationRate="normal"
+              bounces={true}
+              scrollEventThrottle={16}
+              overScrollMode="never"
+              nestedScrollEnabled={true}
+            >
+              <View style={styles.content}>
+                <View style={styles.contentInner}>
+                  {/* OTP Input */}
+                  <View style={styles.otpContainer}>
+                    {[0, 1, 2, 3, 4, 5].map((index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.otpInputWrapper,
+                          (focusedIndex === index || otp[index]) && styles.otpInputWrapperFocused,
+                          errorMessage !== '' && styles.otpInputWrapperError,
+                        ]}
+                      >
+                        <TextInput
+                          ref={(ref) => {
+                            inputRefs.current[index] = ref;
+                          }}
+                          style={styles.otpInput}
+                          value={otp[index]}
+                          onChangeText={(value) => handleOTPChange(value, index)}
+                          onKeyPress={(e) => handleKeyPress(e, index)}
+                          onFocus={() => setFocusedIndex(index)}
+                          onBlur={() => setFocusedIndex(null)}
+                          keyboardType="number-pad"
+                          maxLength={1}
+                          selectTextOnFocus
+                          editable={!isVerifying}
+                        />
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Instructions */}
+                  <View style={styles.instructionsContainer}>
+                    {errorMessage === '' && (
+                      <Text style={styles.instructionsText}>
+                        Please check your email and enter the verification code
+                      </Text>
+                    )}
+                  </View>
+
+                  {/* Error Message */}
+                  {errorMessage !== '' && (
+                    <Text style={styles.errorText}>{errorMessage}</Text>
+                  )}
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+
+      {/* Button outside KAV — stays fixed at screen bottom */}
+      <BottomButtonContainer>
+        <CustomButton
+          variant={resendCooldown === 0 && !isSendingOTP ? 'primary' : 'disabled'}
+          btnLabel={
+            isSendingOTP ? (
+              'Sending...'
+            ) : resendCooldown === 0 ? (
+              'Resend One-Time-Password (OTP)'
+            ) : (
+              `Resend One-Time-Password (${resendCooldown} sec)`
+            )
+          }
+          onPress={handleSendOTP}
+        />
+      </BottomButtonContainer>
+
+      {/* Loading Overlay */}
+      {isVerifying && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#7BA21B" />
+        </View>
+      )}
     </SafeAreaView>
   );
 }

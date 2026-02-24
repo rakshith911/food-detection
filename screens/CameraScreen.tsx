@@ -358,8 +358,8 @@ export default function CameraScreen() {
       } else {
         // Already denied — show alert and go back
         Alert.alert(
-          'Camera Access Required',
-          'Camera access was denied. Please enable it in Settings to scan food.',
+          'UKcal would like to access your camera',
+          'UKcal would like to access your camera',
           [
             {
               text: 'Cancel',

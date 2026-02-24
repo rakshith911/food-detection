@@ -54,6 +54,14 @@ export const awsConfig = {
     endpoint: 'https://y7z615hzm3.execute-api.us-east-1.amazonaws.com/v1',
   },
 
+  // User Data Backup Configuration (S3)
+  // User data is stored at: s3://{S3.bucketName}/{s3Prefix}/{userId}/profile.json|history.json|settings.json
+  // The API endpoint is the nutrition analysis API Gateway (same terraform deployment)
+  UserData: {
+    s3Prefix: 'UKcal', // S3 key prefix for per-user data folders
+    apiEndpoint: 'https://qx3i66fa87.execute-api.us-east-1.amazonaws.com/v1', // Nutrition analysis API (has /user-data routes)
+  },
+
   // Delete Account OTP – dedicated service (e.g. separate Cognito or Lambda + API)
   // When set, the app uses this for delete-account verification emails instead of the sign-in Cognito flow.
   // Leave enabled: false until you provide the details (like for sign-in).

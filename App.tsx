@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
-import { Alert } from 'react-native';
+import { Alert, Animated, View, StyleSheet } from 'react-native';
 import { NavigationContainer, CommonActions } from '@react-navigation/native';
 import { createStackNavigator, TransitionPresets } from '@react-navigation/stack';
 // ActivityIndicator and Text moved to AppLoader component
@@ -460,10 +460,14 @@ function AppContent() {
   const showSplash = useAppSelector((state) => state.app.showSplash);
   const showWelcome = useAppSelector((state) => state.app.showWelcome);
   const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated);
-  
+
   // Single NavigationContainer at the top level - never remounts
   // MUST be called before any conditional returns to maintain hook order
   const navigationRef = useRef<any>(null);
+
+  // Splash fade-out animation
+  const splashOpacity = useRef(new Animated.Value(1)).current;
+  const [splashMounted, setSplashMounted] = useState(showSplash);
 
   // Load user from storage on app start
   useEffect(() => {
@@ -486,40 +490,57 @@ function AppContent() {
     console.log('[AppContent] showWelcome changed:', showWelcome, 'isAuthenticated:', isAuthenticated);
   }, [showWelcome, isAuthenticated]);
 
-  if (showSplash) {
-    return (
-      <SplashScreen
-        onFinish={() => {
-          dispatch(setShowSplash(false));
-        }}
-      />
-    );
-  }
+  const handleSplashFinish = useCallback(() => {
+    Animated.timing(splashOpacity, {
+      toValue: 0,
+      duration: 500,
+      useNativeDriver: true,
+    }).start(async () => {
+      setSplashMounted(false);
+      dispatch(setShowSplash(false));
+
+      // Ask for notification permission on first launch only (single system dialog)
+      const asked = await AsyncStorage.getItem('notification_permission_asked');
+      if (!asked) {
+        await AsyncStorage.setItem('notification_permission_asked', 'true');
+        await Notifications.requestPermissionsAsync();
+      }
+    });
+  }, [dispatch, splashOpacity]);
 
   console.log('[AppContent] Rendering app, showWelcome:', showWelcome, 'isAuthenticated:', isAuthenticated);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <PaperProvider theme={{
-        ...DefaultTheme,
-        colors: {
-          ...DefaultTheme.colors,
-          background: '#FFFFFF',
-          surface: '#FFFFFF',
-          text: '#4a4a4a',
-          onSurface: '#4a4a4a',
-          placeholder: '#4a4a4a',
-          backdrop: 'rgba(0, 0, 0, 0.5)',
-        },
-        dark: false,
-      }}>
-        <SafeAreaProvider>
-          <NavigationContainer ref={navigationRef}>
-            <RootNavigator />
-          </NavigationContainer>
-        </SafeAreaProvider>
-      </PaperProvider>
-    </GestureHandlerRootView>
+    <View style={appStyles.root}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <PaperProvider theme={{
+          ...DefaultTheme,
+          colors: {
+            ...DefaultTheme.colors,
+            background: '#FFFFFF',
+            surface: '#FFFFFF',
+            text: '#4a4a4a',
+            onSurface: '#4a4a4a',
+            placeholder: '#4a4a4a',
+            backdrop: 'rgba(0, 0, 0, 0.5)',
+          },
+          dark: false,
+        }}>
+          <SafeAreaProvider>
+            <NavigationContainer ref={navigationRef}>
+              <RootNavigator />
+            </NavigationContainer>
+          </SafeAreaProvider>
+        </PaperProvider>
+      </GestureHandlerRootView>
+
+      {/* Splash overlay — fades out smoothly over the main app */}
+      {splashMounted && (
+        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: splashOpacity }]}>
+          <SplashScreen onFinish={handleSplashFinish} />
+        </Animated.View>
+      )}
+    </View>
   );
 }
 
@@ -536,3 +557,8 @@ export default function App() {
 }
 
 // Styles moved to AppLoader component
+const appStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});

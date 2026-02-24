@@ -14,8 +14,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { sendOTP } from '../store/slices/authSlice';
-import { setShowWelcome } from '../store/slices/appSlice';
+import { sendOTP, logout, clearError } from '../store/slices/authSlice';
 import VectorBackButton from '../components/VectorBackButton';
 import Group2076Logo from '../components/Group2076Logo';
 import ScreenLoader from '../components/ScreenLoader';
@@ -31,38 +30,7 @@ export default function EmailLoginScreen({ navigation }: { navigation: any }) {
   const error = useAppSelector((state) => state.auth.error);
   
   const handleBack = () => {
-    console.log('[EmailLogin] Back button pressed, setting showWelcome to true');
-    
-    // First, check if Welcome is in the current navigation stack
-    let shouldNavigateBack = false;
-    if (navigation.canGoBack && navigation.canGoBack()) {
-      try {
-        const state = navigation.getState();
-        const routes = state?.routes || [];
-        const hasWelcome = routes.some((route: any) => route.name === 'Welcome');
-        if (hasWelcome) {
-          console.log('[EmailLogin] Welcome found in stack, going back');
-          shouldNavigateBack = true;
-        }
-      } catch (error) {
-        console.log('[EmailLogin] Error checking navigation state:', error);
-      }
-    }
-    
-    if (shouldNavigateBack) {
-      navigation.goBack();
-    } else {
-      // Set showWelcome to true - this will cause AppContent in App.tsx to re-render
-      // and conditionally show the Welcome NavigationContainer
-      console.log('[EmailLogin] Welcome not in stack, dispatching setShowWelcome(true)');
-      dispatch(setShowWelcome(true));
-      
-      // Force a small delay to ensure state update propagates
-      // The AppContent component should re-render and show Welcome screen
-      setTimeout(() => {
-        console.log('[EmailLogin] State update should have triggered re-render');
-      }, 100);
-    }
+    navigation.goBack();
   };
   
   // Track logo image loading - wait for actual image to load
@@ -112,16 +80,26 @@ export default function EmailLoginScreen({ navigation }: { navigation: any }) {
     }
 
     try {
+      // Clear any stale auth session before starting a new login flow
+      // This ensures isAuthenticated is false so the navigator stays in the login flow
+      // and only transitions to authenticated screens after successful OTP verification
+      try {
+        await dispatch(logout()).unwrap();
+      } catch (e) {
+        console.log('[EmailLogin] Logout before new flow (non-fatal):', e);
+      }
+      dispatch(clearError());
+
       const result = await dispatch(sendOTP({ input: trimmedEmail, method: 'email' }));
       if (sendOTP.fulfilled.match(result)) {
         // Navigate to OTP screen
         navigation.navigate('OTPScreen', { email: trimmedEmail });
-      } else if (sendOTP.rejected.match(result)) {
-        const errorMessage = result.error?.message || 'Failed to send OTP. Please try again.';
-        Alert.alert('Error', errorMessage);
       }
+      // No need to show an alert on rejection — the auth service already
+      // displays a specific error message (e.g. rate-limit, invalid params).
     } catch (error) {
-      Alert.alert('Error', 'Failed to send OTP. Please try again.');
+      // Unexpected errors only
+      Alert.alert('Error', 'Something went wrong. Please try again.');
     }
   };
 
@@ -181,9 +159,9 @@ export default function EmailLoginScreen({ navigation }: { navigation: any }) {
           {/* Button - Fixed at Bottom */}
           <BottomButtonContainer>
             <TouchableOpacity
-              style={[styles.button, isLoading && styles.buttonDisabled]}
+              style={[styles.button, (isLoading || !isValidEmail(email)) && styles.buttonDisabled]}
               onPress={handleSendOTP}
-              disabled={isLoading}
+              disabled={isLoading || !isValidEmail(email)}
               activeOpacity={0.8}
             >
               {isLoading ? (

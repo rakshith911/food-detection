@@ -183,6 +183,26 @@ export default function MealDetailScreen() {
     return sum > 0 ? sum : (item?.nutritionalInfo?.calories ?? 0);
   }, [dishContents, item?.nutritionalInfo?.calories]);
 
+  // If total calories > 0, ensure no individual dish has 0 calories (set to 1)
+  useEffect(() => {
+    if (totalCalories > 0) {
+      setDishContents(prev => {
+        const hasZero = prev.some(row => {
+          const cal = Number(row.calories);
+          return !Number.isFinite(cal) || cal === 0;
+        });
+        if (!hasZero) return prev;
+        return prev.map(row => {
+          const cal = Number(row.calories);
+          if (!Number.isFinite(cal) || cal === 0) {
+            return { ...row, calories: '1' };
+          }
+          return row;
+        });
+      });
+    }
+  }, [totalCalories]);
+
   // Track which input is currently focused
   const focusedInputRef = useRef<{ rowId: string; field: string } | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -463,7 +483,7 @@ export default function MealDetailScreen() {
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+        keyboardVerticalOffset={0}
       >
         <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
           <View style={{ flex: 1 }}>
@@ -483,7 +503,8 @@ export default function MealDetailScreen() {
             <ScrollView 
             ref={scrollViewRef}
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingBottom: isKeyboardVisible ? 200 : 100 }]}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
+            showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             decelerationRate="normal"
@@ -491,8 +512,6 @@ export default function MealDetailScreen() {
             scrollEventThrottle={16}
             overScrollMode="never"
             nestedScrollEnabled={true}
-            contentInsetAdjustmentBehavior="automatic"
-            scrollEnabled={true}
           >
         {/* Media Preview */}
         <View style={styles.mediaContainer}>

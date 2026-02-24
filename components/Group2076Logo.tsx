@@ -8,8 +8,8 @@ interface Group2076LogoProps {
   onLoad?: () => void;
 }
 
-export default function Group2076Logo({ 
-  width = 280, 
+export default function Group2076Logo({
+  width = 280,
   height,
   style,
   onLoad
@@ -21,7 +21,7 @@ export default function Group2076Logo({
   const calculatedHeight = width * aspectRatio;
   // Always use calculated height to show full image, ignore provided height if it would crop
   const displayHeight = calculatedHeight;
-  
+
   // Use Group2076.png (without space) which shows the full logo with "UKcal" text
   // Using filename without space to avoid iOS require() issues
   return (
@@ -45,4 +45,3 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
-

@@ -605,8 +605,8 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
 
     if (status === 'denied' || status === 'restricted') {
       Alert.alert(
-        'Camera Access Required',
-        'Camera access was denied. Please enable it in Settings to scan food.',
+        'UKcal would like to access your camera',
+        'UKcal would like to access your camera',
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Open Settings', onPress: () => Linking.openSettings() },

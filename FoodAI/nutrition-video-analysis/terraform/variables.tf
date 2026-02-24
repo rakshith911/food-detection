@@ -86,3 +86,10 @@ variable "gpu_key_pair_name" {
   default     = ""
 }
 
+# User Data S3 Bucket (for per-user backup/restore)
+variable "user_data_bucket" {
+  description = "S3 bucket name for per-user data backup (UKcal folders)"
+  type        = string
+  default     = "ukcal-user-uploads"
+}
+

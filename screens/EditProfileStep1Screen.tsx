@@ -59,7 +59,6 @@ export default function EditProfileStep1Screen() {
   const [isLoading, setIsLoading] = useState(false);
   const [isLookingUpPostcode, setIsLookingUpPostcode] = useState(false);
   const [isPickerLoading, setIsPickerLoading] = useState(false);
-  const [hasPhotoPermission, setHasPhotoPermission] = useState<boolean | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // UK Cities/Towns list
@@ -81,14 +80,6 @@ export default function EditProfileStep1Screen() {
     list: [{ _id: '1', value: 'United Kingdom' }],
     selectedList: [{ _id: '1', value: 'United Kingdom' }],
   });
-
-  // Pre-request photo library permission on mount and cache the result
-  useEffect(() => {
-    (async () => {
-      const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      setHasPhotoPermission(granted);
-    })();
-  }, []);
 
   // Load profile data from Redux when screen is focused
   // Only load if profile is not already loaded to avoid triggering AppLoader
@@ -227,20 +218,21 @@ export default function EditProfileStep1Screen() {
   const selectProfileImage = async () => {
     if (isPickerLoading) return;
 
-    if (hasPhotoPermission === false) {
-      Alert.alert(
-        'Permission Required',
-        'Photo library access is needed to upload a profile photo. Please enable it in Settings.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]
-      );
-      return;
-    }
-
     setIsPickerLoading(true);
     try {
+      const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!granted) {
+        Alert.alert(
+          'Permission Required',
+          'UKcal would like to access your photos.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -256,14 +248,6 @@ export default function EditProfileStep1Screen() {
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert(
-        'Permission Required',
-        'Photo library access is needed to upload a profile photo. Please enable it in Settings.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]
-      );
     } finally {
       setIsPickerLoading(false);
     }

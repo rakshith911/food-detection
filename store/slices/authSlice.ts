@@ -3,8 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { cognitoOTPService as mockCognitoService, CognitoOTPService } from '../../services/CognitoAuthService';
 import { realCognitoOTPService } from '../../services/RealCognitoAuthService';
 import { userService } from '../../services/UserService';
+import { s3UserDataService, AllUserData } from '../../services/S3UserDataService';
 import { clearProfile } from './profileSlice';
 import { clearHistoryLocal } from './historySlice';
+import { backupSettings } from './appSlice';
 
 // 🔧 CONFIGURATION: Switch between mock and real AWS Cognito
 const USE_REAL_AWS_COGNITO = true; // 🚀 Real AWS Cognito enabled
@@ -29,6 +31,76 @@ const initialState: AuthState = {
   isAuthenticated: false,
   isLoading: true,
   error: null,
+};
+
+/**
+ * Restore user data from S3 into local AsyncStorage
+ * Called after login when the user may have data backed up from a previous install
+ */
+const restoreUserDataFromS3 = async (userId: string, email: string): Promise<boolean> => {
+  try {
+    console.log('[Auth] Checking S3 for backed-up user data...');
+    const s3Data: AllUserData = await s3UserDataService.restoreAll(userId);
+
+    const hasAnyData = s3Data.profile || s3Data.history || s3Data.settings;
+    if (!hasAnyData) {
+      console.log('[Auth] No S3 backup found for this user');
+      return false;
+    }
+
+    console.log('[Auth] S3 backup found, restoring data...');
+
+    // Restore profile data
+    if (s3Data.profile) {
+      const { userAccount, businessProfile, avatar } = s3Data.profile;
+      // Write user account to AsyncStorage (UserService format)
+      const restoredAccount = {
+        userId: userAccount.userId,
+        email: userAccount.email,
+        createdAt: userAccount.createdAt,
+        hasCompletedProfile: userAccount.hasCompletedProfile,
+        profileData: businessProfile || undefined,
+        avatar: avatar || undefined,
+      };
+      await AsyncStorage.setItem('user_account', JSON.stringify(restoredAccount));
+
+      if (businessProfile) {
+        await AsyncStorage.setItem('user_profile', JSON.stringify(businessProfile));
+      }
+
+      if (userAccount.hasCompletedProfile) {
+        await AsyncStorage.setItem('business_profile_completed', 'true');
+      }
+
+      console.log('[Auth] Profile data restored from S3');
+    }
+
+    // Restore history data
+    if (s3Data.history && s3Data.history.entries.length > 0) {
+      // Write to the mockHistoryData key used by MockHistoryAPI
+      const mockData: { [key: string]: any[] } = {};
+      mockData[email] = s3Data.history.entries;
+      await AsyncStorage.setItem('mockHistoryData', JSON.stringify(mockData));
+      console.log('[Auth] History restored from S3:', s3Data.history.entries.length, 'entries');
+    }
+
+    // Restore settings
+    if (s3Data.settings) {
+      if (s3Data.settings.hasConsented !== null) {
+        await AsyncStorage.setItem('user_consent', s3Data.settings.hasConsented ? 'true' : 'false');
+      }
+      if (s3Data.settings.hasCompletedProfile !== null && s3Data.settings.hasCompletedProfile) {
+        await AsyncStorage.setItem('business_profile_completed', 'true');
+      }
+      console.log('[Auth] Settings restored from S3');
+    }
+
+    console.log('[Auth] S3 data restore complete');
+    return true;
+  } catch (error) {
+    console.warn('[Auth] Failed to restore from S3 (non-fatal):', error);
+    return false;
+  }
 };
 
 // Async thunks for auth operations
@@ -76,7 +148,7 @@ export const sendOTP = createAsyncThunk(
 
 export const login = createAsyncThunk(
   'auth/login',
-  async ({ input, otp, method }: { input: string; otp: string; method: 'email' | 'phone' }) => {
+  async ({ input, otp, method }: { input: string; otp: string; method: 'email' | 'phone' }, { dispatch }) => {
     try {
       console.log(`[Auth] Verifying ${method} OTP using ${USE_REAL_AWS_COGNITO ? 'AWS Cognito' : 'Mock'} service`);
       
@@ -103,21 +175,35 @@ export const login = createAsyncThunk(
         // This handles both new users and users logging in with a different email
         if (!userAccount || userAccount.email !== input) {
           console.log('[Auth] OTP verified, creating user account...');
-          
+
           // Clear any old profile completion flags and saved profile data for new users
           await AsyncStorage.removeItem('business_profile_completed');
           await AsyncStorage.removeItem('user_consent');
           await AsyncStorage.removeItem('consent_date');
           await AsyncStorage.removeItem('business_profile_step1'); // Clear any saved Step 1 data
           await AsyncStorage.removeItem('edit_profile_step1'); // Clear any saved edit profile data
-          
+
           // Pass Cognito user ID if available (for DynamoDB mode)
           userAccount = await userService.createUserAccount(input, verificationResult.userId);
-          
+
           // Explicitly set flags to false for new users
           await AsyncStorage.setItem('business_profile_completed', 'false');
           await AsyncStorage.setItem('user_consent', 'false');
-          
+
+          // Try to restore data from S3 (handles reinstall scenario)
+          // If the user had data backed up from a previous install, restore it
+          const restoredFromS3 = await restoreUserDataFromS3(userAccount.userId, input);
+          if (restoredFromS3) {
+            // Re-read the user account since S3 restore may have updated it
+            const restoredAccount = await userService.getUserAccount();
+            if (restoredAccount) {
+              userAccount = restoredAccount;
+            }
+            console.log('[Auth] User data restored from S3 after reinstall');
+          } else {
+            console.log('[Auth] No S3 backup found — proceeding as new user');
+          }
+
           console.log('[Auth] User account created successfully');
         } else {
           console.log('[Auth] OTP verified, using existing user account');
@@ -158,10 +244,13 @@ export const login = createAsyncThunk(
         
         // Save to AsyncStorage
         await AsyncStorage.setItem('user', JSON.stringify(userData));
-        
+
         console.log('[Auth] User logged in successfully');
         console.log('[Auth] User ID:', userAccount.userId);
-        
+
+        // Backup current settings to S3 in background (captures consent + profile completion state)
+        dispatch(backupSettings());
+
         return userData;
       } else {
         throw new Error('Invalid verification code. Please check and try again.');
@@ -367,17 +456,17 @@ const authSlice = createSlice({
     // Verify Delete Account OTP and Delete
     builder
       .addCase(verifyDeleteAccountOTPAndDelete.pending, (state) => {
-        state.isLoading = true;
+        // Don't set isLoading — App.tsx shows AppLoader when isLoading && isAuthenticated,
+        // which would unmount the nav stack and reset to Results/Tutorial on rejection.
+        // Screen uses local isVerifying state instead.
         state.error = null;
       })
       .addCase(verifyDeleteAccountOTPAndDelete.fulfilled, (state) => {
-        state.isLoading = false;
         state.user = null;
         state.isAuthenticated = false;
         state.error = null;
       })
       .addCase(verifyDeleteAccountOTPAndDelete.rejected, (state, action) => {
-        state.isLoading = false;
         state.error = action.error.message || 'Invalid or expired verification code';
       });
 

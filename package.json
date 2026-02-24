@@ -1,9 +1,10 @@
 {
   "name": "ukcal",
   "version": "1.0.0",
-  "main": "index.ts",
+  "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start --localhost",
+    "start:stainai": "cd StainAI-frontend && npx expo start",
     "start:lan": "expo start --lan",
     "start:tunnel": "expo start --tunnel",
     "start:localhost": "expo start --localhost",
@@ -30,6 +31,7 @@
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "^8.4.4",
+    "@react-native-community/netinfo": "11.4.1",
     "@react-native-picker/picker": "^2.11.1",
     "@react-navigation/bottom-tabs": "^7.4.9",
     "@react-navigation/native": "^7.1.18",
@@ -42,6 +44,7 @@
     "expo-av": "~16.0.7",
     "expo-blur": "~15.0.7",
     "expo-camera": "~17.0.9",
+    "expo-crypto": "~15.0.8",
     "expo-dev-client": "~6.0.18",
     "expo-document-picker": "^14.0.7",
     "expo-image": "^3.0.10",

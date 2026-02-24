@@ -689,7 +689,6 @@ class RealCognitoAuthService implements CognitoOTPService {
         errorMessage = 'Too many attempts. Please wait a few minutes and try again.';
       }
 
-      Alert.alert('Verification Failed', errorMessage, [{ text: 'OK' }]);
       return false;
     }
   }
@@ -727,7 +726,7 @@ class RealCognitoAuthService implements CognitoOTPService {
       await signOut();
       console.log('[AWS Cognito] ✅ User logged out successfully');
     } catch (error) {
-      console.error('[AWS Cognito] ❌ Failed to logout:', error);
+      console.log('[AWS Cognito] Logout failed (non-fatal):', error);
       throw error;
     }
   }

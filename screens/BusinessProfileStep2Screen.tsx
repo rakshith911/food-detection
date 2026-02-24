@@ -116,10 +116,6 @@ export default function BusinessProfileStep2Screen({ navigation }: { navigation:
       { _id: "1", value: "Eat-in" },
       { _id: "2", value: "Takeaway" },
       { _id: "3", value: "Delivery" },
-      { _id: "4", value: "Eat-in & Takeaway" },
-      { _id: "5", value: "Eat-in & Delivery" },
-      { _id: "6", value: "Takeaway & Delivery" },
-      { _id: "7", value: "All (Eat-in, Takeaway & Delivery)" },
     ],
     selectedList: [],
   });
@@ -340,14 +336,10 @@ export default function BusinessProfileStep2Screen({ navigation }: { navigation:
 
   // Memoize handlers to prevent re-renders
   const handleBusinessCategoryChange = useCallback((value: any) => {
-    // Single-select: only keep the most recently selected item
-    const singleItem = value.selectedList && value.selectedList.length > 0
-      ? [value.selectedList[value.selectedList.length - 1]]
-      : [];
     setBusinessCategory((prev) => ({
       ...prev,
-      value: singleItem.length > 0 ? singleItem[0].value : '',
-      selectedList: singleItem,
+      value: value.text,
+      selectedList: value.selectedList,
     }));
   }, []);
 
@@ -438,7 +430,7 @@ export default function BusinessProfileStep2Screen({ navigation }: { navigation:
             <TouchableOpacity style={styles.uploadMenuButton} onPress={uploadMenu}>
               <Ionicons name="document-text" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
               <Text style={styles.uploadMenuText}>
-                {menuFile ? `${menuFile.name}` : 'Upload Menu (Optional)'}
+                {menuFile ? `${menuFile.name}` : 'Upload Menu'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -587,16 +579,16 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 4,
     paddingBottom: 20,
     flexGrow: 1,
   },
   profileImageContainer: {
     alignItems: 'center',
-    marginVertical: 20,
+    marginVertical: 6,
   },
   imagePickerButton: {
-    marginBottom: 12,
+    marginBottom: 6,
   },
   profileImage: {
     width: 120,
@@ -619,13 +611,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#7BA21B',
-    paddingHorizontal: 24,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 6,
+    alignSelf: 'center',
   },
   uploadMenuText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
   formContainer: {
@@ -633,7 +626,7 @@ const styles = StyleSheet.create({
   },
   inputWrapper: {
     width: 325,
-    marginBottom: 16,
+    marginBottom: 6,
   },
   buttonContainer: {
     paddingHorizontal: 32,
