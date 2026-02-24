@@ -173,6 +173,7 @@ function RootNavigator() {
   const businessProfile = useAppSelector((state) => state.profile.businessProfile);
   const userAccount = useAppSelector((state) => state.profile.userAccount);
   const isProfileLoading = useAppSelector((state) => state.profile.isLoading);
+  const isHistoryLoading = useAppSelector((state) => state.history.isLoading);
   const showWelcome = useAppSelector((state) => state.app.showWelcome);
   const [hasConsented, setHasConsented] = useState<boolean | null>(null);
   const [hasCompletedProfile, setHasCompletedProfile] = useState<boolean | null>(null);
@@ -405,7 +406,7 @@ function RootNavigator() {
   const profileBelongsToCurrentUser = userAccount?.email === user?.email;
   const hasValidProfile = businessProfile && businessProfile.businessName && profileBelongsToCurrentUser;
 
-  if (isProfileLoading && !hasShownMainApp.current) {
+  if ((isProfileLoading || isHistoryLoading) && !hasShownMainApp.current) {
     console.log('[App] ⏳ Profile is loading...', {
       isProfileLoading,
       userEmail: user?.email,

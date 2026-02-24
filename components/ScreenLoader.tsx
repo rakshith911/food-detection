@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    opacity: 0.3, // Dim content while loading
+    opacity: 0, // Hide content completely while loading
   },
   overlay: {
     position: 'absolute',

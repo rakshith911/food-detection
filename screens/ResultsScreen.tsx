@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView, StatusBar, Alert, LayoutAnimation, Platform, UIManager, Animated, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
@@ -12,7 +12,6 @@ import { deleteAnalysis, loadHistory, clearHistoryLocal } from '../store/slices/
 import { loadProfile } from '../store/slices/profileSlice';
 import type { AnalysisEntry } from '../store/slices/historySlice';
 import ScreenLoader from '../components/ScreenLoader';
-import { useImageLoadTracker } from '../hooks/useImageLoadTracker';
 import ImageWithLoader from '../components/ImageWithLoader';
 import { getImagePresignedUrl } from '../services/S3UserDataService';
 import AppHeader from '../components/AppHeader';
@@ -31,8 +30,8 @@ function HistoryCardImage({
   imageUri: string;
   jobId?: string;
   style: any;
-  onImageLoad: () => void;
-  onImageError: () => void;
+  onImageLoad?: () => void;
+  onImageError?: () => void;
 }) {
   const [uri, setUri] = useState(imageUri);
   const hasTriedS3 = useRef(false);
@@ -105,9 +104,6 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
   // Use navigation prop if provided (for stack navigation), otherwise use hook
   const nav = navigationProp || navigation;
 
-  // Track if this is the initial load - only show loader on first mount
-  const isInitialLoad = useRef(true);
-  const initialImageCount = useRef<number | null>(null);
   const hasLoadedHistory = useRef(false); // Track if we've loaded history at least once
   const hasStartedLoading = useRef(false); // Track if loading has started at least once
   const currentUserEmail = useRef<string | null>(null); // Track current user to detect changes
@@ -132,42 +128,12 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
       // When user changes, force a complete reset
       hasLoadedHistory.current = false;
       hasStartedLoading.current = false;
-      isInitialLoad.current = true;
-      initialImageCount.current = null;
       setIsHistoryLoaded(false);
       setCanShowTutorial(false);
       loadCompleteTime.current = null;
     }
   }, [user?.email, dispatch, history.length]);
   
-  // Count images that need to be loaded (limit to first 5 visible items)
-  const imageCount = useMemo(() => {
-    return history
-      .filter(item => item.imageUri)
-      .slice(0, 5) // Only track first 5 visible images
-      .length;
-  }, [history]);
-
-  // Set initial image count on first render
-  useEffect(() => {
-    if (initialImageCount.current === null && imageCount > 0) {
-      initialImageCount.current = imageCount;
-    }
-  }, [imageCount]);
-
-  // Track image loading - only on initial load, not when cards are deleted
-  const { isLoading: isImageLoading, handleImageLoad } = useImageLoadTracker({
-    imageCount: isInitialLoad.current && initialImageCount.current !== null ? initialImageCount.current : 0,
-    minLoadTime: 400,
-  });
-
-  // Mark initial load as complete once images are loaded
-  useEffect(() => {
-    if (!isImageLoading && isInitialLoad.current && initialImageCount.current !== null) {
-      isInitialLoad.current = false;
-    }
-  }, [isImageLoading]);
-
   // Load history ONLY when user email changes (not on every state change)
   useEffect(() => {
     if (user?.email && !hasStartedLoading.current) {
@@ -464,11 +430,6 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
                 imageUri={item.imageUri}
                 jobId={item.job_id}
                 style={styles.media}
-                onImageLoad={handleImageLoad}
-                onImageError={() => {
-                  console.log('[Results] Image load error for:', item.id);
-                  handleImageLoad();
-                }}
               />
             ) : (
               <View style={[styles.media, styles.videoFallback]} />
@@ -523,21 +484,13 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
                        lastRenderedEmail.current !== user?.email &&
                        profileBelongsToCurrentUser; // Only block if we have a valid profile that matches
 
-  // Show loader only on initial load - based on whether we HAVE data, not whether we're loading
-  // Also show loader if we have history but haven't determined image count yet (prevents flash)
-  const imagesNotReady = history.length > 0 && isInitialLoad.current && (
-    initialImageCount.current === null || isImageLoading
-  );
-  
-  // On initial load, wait for history to finish loading (prevents flash of stale data)
-  // CRITICAL: Also check hasLoadedHistory - if we haven't completed a load THIS session, show loader
-  const historyNotReadyYet = isInitialLoad.current && (!hasLoadedHistory.current || isLoading);
-  
+  // Show loader until history is confirmed loaded for this session
+  const historyNotReadyYet = !hasLoadedHistory.current || isLoading;
+
   const shouldShowLoader = !user?.email ||
                            emailChanged ||
                            historyNotReadyYet ||
-                           (history.length === 0 && !canShowTutorial) ||
-                           imagesNotReady;
+                           (history.length === 0 && !canShowTutorial);
 
   // Update last rendered email once we're sure we're showing the correct data
   if (!shouldShowLoader && user?.email && profileBelongsToCurrentUser) {

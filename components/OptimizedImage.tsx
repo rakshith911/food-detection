@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, ActivityIndicator, StyleSheet, View, Text, ImageProps } from 'react-native';
+import { Image, ActivityIndicator, StyleSheet, View, ImageProps } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 
 type OptimizedImageProps = ImageProps & {
@@ -78,9 +78,7 @@ export default function OptimizedImage({
         </View>
       )}
       {hasError && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Failed to load</Text>
-        </View>
+        <View style={styles.skeletonContainer} />
       )}
     </View>
   );
@@ -90,6 +88,7 @@ const styles = StyleSheet.create({
   container: {
     position: 'relative',
     overflow: 'hidden',
+    backgroundColor: '#E5E7EB',
   },
   image: {
     width: '100%',
@@ -101,16 +100,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
-  errorContainer: {
+  skeletonContainer: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 12,
-    fontWeight: '600',
+    backgroundColor: '#E5E7EB',
   },
 });
 
