@@ -66,6 +66,77 @@ export async function loadHistoryFromS3(email: string): Promise<AnalysisEntry[] 
   }
 }
 
+// ── Types expected by store slices (upstream interface) ───────────────────────
+
+export interface ProfileBackup {
+  userAccount: {
+    userId: string;
+    email: string;
+    createdAt: number;
+    hasCompletedProfile: boolean;
+  };
+  businessProfile: any | null;
+  avatar: { id: number } | null;
+  profileImage: string | null;
+  updatedAt: string;
+}
+
+export interface HistoryBackup {
+  entries: AnalysisEntry[];
+  updatedAt: string;
+}
+
+export interface SettingsBackup {
+  hasConsented: boolean | null;
+  hasCompletedProfile: boolean | null;
+  updatedAt: string;
+}
+
+export interface AllUserData {
+  profile: ProfileBackup | null;
+  history: HistoryBackup | null;
+  settings: SettingsBackup | null;
+}
+
+// ── Class-based interface used by store slices ────────────────────────────────
+// Uses userId (Cognito sub UUID) directly as the S3 key — already safe for S3.
+// Lambda only supports 'profile' and 'history'; settings are silently skipped.
+
+class S3UserDataServiceClass {
+  backupInBackground(userId: string, dataType: 'profile' | 'history' | 'settings', data: any): void {
+    if (dataType === 'settings') return; // Lambda doesn't support settings yet
+    s3Post('user_data_write', userId, dataType, data).catch((e) => {
+      console.warn(`[S3UserData] Background backup of ${dataType} failed:`, e);
+    });
+  }
+
+  async restoreAll(userId: string): Promise<AllUserData> {
+    try {
+      const [profileRes, historyRes] = await Promise.allSettled([
+        s3Post('user_data_read', userId, 'profile').then(async (r) => {
+          if (!r.ok) return null;
+          const j = await r.json();
+          return j.data ?? null;
+        }),
+        s3Post('user_data_read', userId, 'history').then(async (r) => {
+          if (!r.ok) return null;
+          const j = await r.json();
+          return j.data ?? null;
+        }),
+      ]);
+      return {
+        profile: profileRes.status === 'fulfilled' ? profileRes.value : null,
+        history: historyRes.status === 'fulfilled' ? historyRes.value : null,
+        settings: null,
+      };
+    } catch {
+      return { profile: null, history: null, settings: null };
+    }
+  }
+}
+
+export const s3UserDataService = new S3UserDataServiceClass();
+
 // ── Image helpers ─────────────────────────────────────────────────────────────
 
 // In-memory cache so we don't re-request presigned GET URLs within the same session
