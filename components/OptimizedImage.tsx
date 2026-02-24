@@ -19,6 +19,8 @@ export default function OptimizedImage({
   onImageError,
   showLoader = false,
   style,
+  onLoad: _onLoad,
+  onError: _onError,
   ...props
 }: OptimizedImageProps) {
   const [isLoading, setIsLoading] = React.useState(true);
@@ -28,6 +30,7 @@ export default function OptimizedImage({
 
   const handleLoad = () => {
     setIsLoading(false);
+    setHasError(false);
     onImageLoad?.();
   };
 
@@ -68,7 +71,6 @@ export default function OptimizedImage({
         transition={200}
         onLoad={handleLoad}
         onError={handleError}
-        {...props}
       />
       {showLoader && isLoading && (
         <View style={styles.loaderContainer}>
