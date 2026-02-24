@@ -21,12 +21,12 @@ const LOGO_URL = 'https://ukcal-assets.s3.amazonaws.com/icon.png';
 
 function header() {
   return `
-<td style="padding: 40px 40px 20px 40px; text-align: center; background: linear-gradient(135deg, #7BA21B 0%, #5d7d14 100%); border-radius: 16px 16px 0 0;">
-  <div style="width: 80px; height: 80px; margin: 0 auto 16px auto; background-color: #ffffff; border-radius: 50%; padding: 12px; box-sizing: border-box;">
-    <img src="${LOGO_URL}" alt="UKcal" width="56" height="56" style="display: block; width: 56px; height: 56px; object-fit: contain;" />
+<td style="padding: 36px 40px 24px 40px; text-align: center; background-color: #7BA21B; border-radius: 16px 16px 0 0;">
+  <div style="width: 76px; height: 76px; border-radius: 18px; overflow: hidden; background-color: #ffffff; margin: 0 auto 16px auto; box-shadow: 0 2px 10px rgba(0,0,0,0.18);">
+    <img src="${LOGO_URL}" alt="UKcal" width="76" height="76" style="display: block; width: 76px; height: 76px;" />
   </div>
-  <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">UKcal</h1>
-  <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.9); font-size: 14px;">Smart Nutrition Tracking</p>
+  <h1 style="margin: 0; color: #ffffff; font-size: 26px; font-weight: 700; letter-spacing: -0.5px;">UKcal</h1>
+  <p style="margin: 6px 0 0 0; color: rgba(255,255,255,0.9); font-size: 13px;">Smart Nutrition Tracking</p>
 </td>`;
 }
 
@@ -34,7 +34,7 @@ function otpBox() {
   return `
 <div style="background: linear-gradient(135deg, #f0f7e6 0%, #e8f5d6 100%); border: 2px solid #7BA21B; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 30px;">
   <p style="margin: 0 0 8px 0; color: #5d7d14; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Your Verification Code</p>
-  <p style="margin: 0; color: #7BA21B; font-size: 36px; font-weight: 700; letter-spacing: 8px; font-family: 'Courier New', monospace;">{####}</p>
+  <p style="margin: 0; color: #7BA21B; font-size: 36px; font-weight: 700; letter-spacing: 6px; font-family: 'Courier New', monospace;">{####}</p>
 </div>`;
 }
 
