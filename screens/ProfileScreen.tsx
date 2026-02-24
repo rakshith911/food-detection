@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -35,34 +35,25 @@ export default function ProfileScreen() {
   const avatar = profileState.avatar;
   const profileImage = profileState.profileImage;
   const [isPickerLoading, setIsPickerLoading] = useState(false);
-  const [hasPhotoPermission, setHasPhotoPermission] = useState<boolean | null>(null);
-
-  // Pre-request photo library permission on mount and cache the result
-  useEffect(() => {
-    (async () => {
-      const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      setHasPhotoPermission(granted);
-    })();
-  }, []);
 
   const selectProfileImage = async () => {
     if (isPickerLoading) return;
 
-    // If permission was denied on mount, send to Settings immediately — no delay
-    if (hasPhotoPermission === false) {
-      Alert.alert(
-        'Permission Required',
-        'Photo library access is needed to upload a profile photo. Please enable it in Settings.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]
-      );
-      return;
-    }
-
     setIsPickerLoading(true);
     try {
+      const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!granted) {
+        Alert.alert(
+          'Permission Required',
+          'UKcal would like to access your photos.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -79,7 +70,7 @@ export default function ProfileScreen() {
       console.error('Error picking image:', error);
       Alert.alert(
         'Permission Required',
-        'Photo library access is needed to upload a profile photo. Please enable it in Settings.',
+        'UKcal would like to access your photos.',
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Open Settings', onPress: () => Linking.openSettings() },

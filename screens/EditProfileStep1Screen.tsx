@@ -211,20 +211,21 @@ export default function EditProfileStep1Screen() {
   const selectProfileImage = async () => {
     if (isPickerLoading) return;
 
-    if (hasPhotoPermission === false) {
-      Alert.alert(
-        'Permission Required',
-        'Photo library access is needed to upload a profile photo. Please enable it in Settings.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]
-      );
-      return;
-    }
-
     setIsPickerLoading(true);
     try {
+      const { granted } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!granted) {
+        Alert.alert(
+          'Permission Required',
+          'UKcal would like to access your photos.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -240,14 +241,6 @@ export default function EditProfileStep1Screen() {
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert(
-        'Permission Required',
-        'Photo library access is needed to upload a profile photo. Please enable it in Settings.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]
-      );
     } finally {
       setIsPickerLoading(false);
     }

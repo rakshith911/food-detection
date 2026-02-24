@@ -8,7 +8,10 @@ import {
   Dimensions,
   ScrollView,
   Animated,
+  Alert,
+  Linking,
 } from 'react-native';
+import { Camera } from 'react-native-vision-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -54,8 +57,40 @@ export default function TutorialScreen({ onBack }: TutorialScreenProps = {}) {
     hour12: true,
   });
 
-  const handleSnapDish = () => {
-    navigation.navigate('Camera' as never);
+  const handleSnapDish = async () => {
+    const status = Camera.getCameraPermissionStatus();
+
+    if (status === 'granted') {
+      navigation.navigate('Camera' as never);
+      return;
+    }
+
+    if (status === 'denied' || status === 'restricted') {
+      Alert.alert(
+        'UKcal would like to access your camera',
+        'UKcal would like to access your camera',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+      return;
+    }
+
+    // 'not-determined' — show the native iOS permission popup (appears over this screen)
+    const result = await Camera.requestCameraPermission();
+    if (result === 'granted') {
+      navigation.navigate('Camera' as never);
+    } else {
+      Alert.alert(
+        'UKcal would like to access your camera',
+        'UKcal would like to access your camera',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      );
+    }
   };
 
   // Handle swipe left gesture to go back

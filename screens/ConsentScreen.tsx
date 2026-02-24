@@ -202,7 +202,7 @@ export default function ConsentScreen({ navigation: navigationProp, onConsent }:
           disabled={!hasScrolledToBottom || isLoading}
         >
           <Text style={styles.consentButtonText}>
-            {isLoading ? 'Processing...' : hasScrolledToBottom ? 'I Consent' : 'Scroll to Bottom to Continue'}
+            {isLoading ? 'Processing...' : hasScrolledToBottom ? 'I Consent' : 'Scroll to bottom to continue'}
           </Text>
         </TouchableOpacity>
       </BottomButtonContainer>

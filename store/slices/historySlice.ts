@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import historyAPI from '../../services/HistoryAPI';
+import { s3UserDataService, HistoryBackup } from '../../services/S3UserDataService';
 
 export interface DishContent {
   id: string;
@@ -68,6 +69,23 @@ const initialState: HistoryState = {
   error: null,
 };
 
+/** Fire-and-forget backup of history entries to S3 */
+const backupHistoryToS3 = (history: AnalysisEntry[], getState: () => unknown) => {
+  try {
+    const state = getState() as { profile: { userAccount: { userId: string } | null } };
+    const userId = state.profile?.userAccount?.userId;
+    if (!userId) return;
+
+    const backup: HistoryBackup = {
+      entries: history,
+      updatedAt: new Date().toISOString(),
+    };
+    s3UserDataService.backupInBackground(userId, 'history', backup);
+  } catch (error) {
+    console.warn('[History] S3 backup failed silently:', error);
+  }
+};
+
 // Async thunks for history operations
 export const loadHistory = createAsyncThunk(
   'history/loadHistory',
@@ -83,9 +101,15 @@ export const loadHistory = createAsyncThunk(
 
 export const addAnalysis = createAsyncThunk(
   'history/addAnalysis',
-  async ({ userEmail, analysis }: { userEmail: string; analysis: Omit<AnalysisEntry, 'id' | 'timestamp'> }) => {
+  async (
+    { userEmail, analysis }: { userEmail: string; analysis: Omit<AnalysisEntry, 'id' | 'timestamp'> },
+    { getState }
+  ) => {
     const response = await historyAPI.saveAnalysis(userEmail, analysis);
     if (response.success && response.data) {
+      // Backup updated history to S3
+      const state = getState() as { history: HistoryState };
+      backupHistoryToS3([response.data, ...state.history.history], getState);
       return response.data;
     } else {
       throw new Error(response.error || 'Failed to save analysis');
@@ -95,9 +119,13 @@ export const addAnalysis = createAsyncThunk(
 
 export const deleteAnalysis = createAsyncThunk(
   'history/deleteAnalysis',
-  async ({ userEmail, analysisId }: { userEmail: string; analysisId: string }) => {
+  async ({ userEmail, analysisId }: { userEmail: string; analysisId: string }, { getState }) => {
     const response = await historyAPI.deleteAnalysis(userEmail, analysisId);
     if (response.success) {
+      // Backup updated history (without the deleted entry) to S3
+      const state = getState() as { history: HistoryState };
+      const remaining = state.history.history.filter((item) => item.id !== analysisId);
+      backupHistoryToS3(remaining, getState);
       return analysisId;
     } else {
       throw new Error(response.error || 'Failed to delete analysis');
@@ -107,9 +135,11 @@ export const deleteAnalysis = createAsyncThunk(
 
 export const clearHistory = createAsyncThunk(
   'history/clearHistory',
-  async (userEmail: string) => {
+  async (userEmail: string, { getState }) => {
     const response = await historyAPI.clearHistory(userEmail);
     if (response.success) {
+      // Backup empty history to S3
+      backupHistoryToS3([], getState);
       return true;
     } else {
       throw new Error(response.error || 'Failed to clear history');
@@ -119,9 +149,18 @@ export const clearHistory = createAsyncThunk(
 
 export const updateAnalysis = createAsyncThunk(
   'history/updateAnalysis',
-  async ({ userEmail, analysisId, updates }: { userEmail: string; analysisId: string; updates: Partial<AnalysisEntry> }) => {
+  async (
+    { userEmail, analysisId, updates }: { userEmail: string; analysisId: string; updates: Partial<AnalysisEntry> },
+    { getState }
+  ) => {
     const response = await historyAPI.updateAnalysis(userEmail, analysisId, updates);
     if (response.success && response.data) {
+      // Backup updated history to S3
+      const state = getState() as { history: HistoryState };
+      const updatedHistory = state.history.history.map((item) =>
+        item.id === analysisId ? response.data! : item
+      );
+      backupHistoryToS3(updatedHistory, getState);
       return response.data;
     } else {
       throw new Error(response.error || 'Failed to update analysis');

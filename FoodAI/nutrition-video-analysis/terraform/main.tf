@@ -329,7 +329,8 @@
           Resource = [
             "${aws_s3_bucket.videos.arn}/*",
             "${aws_s3_bucket.results.arn}/*",
-            "${aws_s3_bucket.models.arn}/*"
+            "${aws_s3_bucket.models.arn}/*",
+            "arn:aws:s3:::${var.user_data_bucket}/*"
           ]
         },
         {
@@ -340,7 +341,8 @@
           Resource = [
             aws_s3_bucket.videos.arn,
             aws_s3_bucket.results.arn,
-            aws_s3_bucket.models.arn
+            aws_s3_bucket.models.arn,
+            "arn:aws:s3:::${var.user_data_bucket}"
           ]
         },
         {
@@ -479,6 +481,36 @@
 
     tags = {
       Name = "${local.name_prefix}-results-handler"
+    }
+  }
+
+  # User Data Handler (S3 backup/restore for per-user data)
+  data "archive_file" "user_data_handler_zip" {
+    type        = "zip"
+    source_dir  = "${path.module}/lambda_code/user_data_handler"
+    output_path = "${path.module}/user_data_handler.zip"
+  }
+
+  resource "aws_lambda_function" "user_data_handler" {
+    filename         = data.archive_file.user_data_handler_zip.output_path
+    function_name    = "${local.name_prefix}-user-data-handler"
+    role            = aws_iam_role.lambda_execution_role.arn
+    handler         = "lambda_function.lambda_handler"
+    runtime         = "python3.11"
+    timeout         = 15
+    memory_size     = 256
+
+    source_code_hash = data.archive_file.user_data_handler_zip.output_base64sha256
+
+    environment {
+      variables = {
+        USER_DATA_BUCKET = var.user_data_bucket
+        S3_PREFIX        = "UKcal"
+      }
+    }
+
+    tags = {
+      Name = "${local.name_prefix}-user-data-handler"
     }
   }
 
@@ -645,6 +677,130 @@
     uri                     = aws_lambda_function.results_handler.invoke_arn
   }
 
+  # =============================================================================
+  # /user-data/{userId}/{dataType} endpoint — per-user S3 backup/restore
+  # =============================================================================
+
+  resource "aws_api_gateway_resource" "user_data" {
+    rest_api_id = aws_api_gateway_rest_api.main.id
+    parent_id   = aws_api_gateway_rest_api.main.root_resource_id
+    path_part   = "user-data"
+  }
+
+  resource "aws_api_gateway_resource" "user_data_user_id" {
+    rest_api_id = aws_api_gateway_rest_api.main.id
+    parent_id   = aws_api_gateway_resource.user_data.id
+    path_part   = "{userId}"
+  }
+
+  resource "aws_api_gateway_resource" "user_data_type" {
+    rest_api_id = aws_api_gateway_rest_api.main.id
+    parent_id   = aws_api_gateway_resource.user_data_user_id.id
+    path_part   = "{dataType}"
+  }
+
+  # GET /user-data/{userId}/{dataType}
+  resource "aws_api_gateway_method" "user_data_get" {
+    rest_api_id   = aws_api_gateway_rest_api.main.id
+    resource_id   = aws_api_gateway_resource.user_data_type.id
+    http_method   = "GET"
+    authorization = "NONE"
+
+    request_parameters = {
+      "method.request.path.userId"   = true
+      "method.request.path.dataType" = true
+    }
+  }
+
+  resource "aws_api_gateway_integration" "user_data_get_lambda" {
+    rest_api_id             = aws_api_gateway_rest_api.main.id
+    resource_id             = aws_api_gateway_resource.user_data_type.id
+    http_method             = aws_api_gateway_method.user_data_get.http_method
+    integration_http_method = "POST"
+    type                    = "AWS_PROXY"
+    uri                     = aws_lambda_function.user_data_handler.invoke_arn
+  }
+
+  # PUT /user-data/{userId}/{dataType}
+  resource "aws_api_gateway_method" "user_data_put" {
+    rest_api_id   = aws_api_gateway_rest_api.main.id
+    resource_id   = aws_api_gateway_resource.user_data_type.id
+    http_method   = "PUT"
+    authorization = "NONE"
+
+    request_parameters = {
+      "method.request.path.userId"   = true
+      "method.request.path.dataType" = true
+    }
+  }
+
+  resource "aws_api_gateway_integration" "user_data_put_lambda" {
+    rest_api_id             = aws_api_gateway_rest_api.main.id
+    resource_id             = aws_api_gateway_resource.user_data_type.id
+    http_method             = aws_api_gateway_method.user_data_put.http_method
+    integration_http_method = "POST"
+    type                    = "AWS_PROXY"
+    uri                     = aws_lambda_function.user_data_handler.invoke_arn
+  }
+
+  # OPTIONS /user-data/{userId}/{dataType} (CORS)
+  resource "aws_api_gateway_method" "user_data_options" {
+    rest_api_id   = aws_api_gateway_rest_api.main.id
+    resource_id   = aws_api_gateway_resource.user_data_type.id
+    http_method   = "OPTIONS"
+    authorization = "NONE"
+  }
+
+  resource "aws_api_gateway_integration" "user_data_options" {
+    rest_api_id = aws_api_gateway_rest_api.main.id
+    resource_id = aws_api_gateway_resource.user_data_type.id
+    http_method = aws_api_gateway_method.user_data_options.http_method
+    type        = "MOCK"
+
+    request_templates = {
+      "application/json" = "{\"statusCode\": 200}"
+    }
+  }
+
+  resource "aws_api_gateway_method_response" "user_data_options_200" {
+    rest_api_id = aws_api_gateway_rest_api.main.id
+    resource_id = aws_api_gateway_resource.user_data_type.id
+    http_method = aws_api_gateway_method.user_data_options.http_method
+    status_code = "200"
+
+    response_parameters = {
+      "method.response.header.Access-Control-Allow-Headers" = true
+      "method.response.header.Access-Control-Allow-Methods" = true
+      "method.response.header.Access-Control-Allow-Origin"  = true
+    }
+
+    response_models = {
+      "application/json" = "Empty"
+    }
+  }
+
+  resource "aws_api_gateway_integration_response" "user_data_options_200" {
+    rest_api_id = aws_api_gateway_rest_api.main.id
+    resource_id = aws_api_gateway_resource.user_data_type.id
+    http_method = aws_api_gateway_method.user_data_options.http_method
+    status_code = aws_api_gateway_method_response.user_data_options_200.status_code
+
+    response_parameters = {
+      "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      "method.response.header.Access-Control-Allow-Methods" = "'GET,PUT,OPTIONS'"
+      "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+    }
+  }
+
+  # Lambda permissions for API Gateway
+  resource "aws_lambda_permission" "user_data_api_gateway" {
+    statement_id  = "AllowAPIGatewayInvoke"
+    action        = "lambda:InvokeFunction"
+    function_name = aws_lambda_function.user_data_handler.function_name
+    principal     = "apigateway.amazonaws.com"
+    source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
+  }
+
   # Lambda permissions for API Gateway
   resource "aws_lambda_permission" "upload_api_gateway" {
     statement_id  = "AllowAPIGatewayInvoke"
@@ -728,7 +884,10 @@
       aws_api_gateway_integration.upload_lambda,
       aws_api_gateway_integration.status_lambda,
       aws_api_gateway_integration.results_lambda,
-      aws_api_gateway_integration.upload_options
+      aws_api_gateway_integration.upload_options,
+      aws_api_gateway_integration.user_data_get_lambda,
+      aws_api_gateway_integration.user_data_put_lambda,
+      aws_api_gateway_integration.user_data_options,
     ]
 
     triggers = {
@@ -737,12 +896,19 @@
         aws_api_gateway_resource.upload.id,
         aws_api_gateway_resource.status.id,
         aws_api_gateway_resource.results.id,
+        aws_api_gateway_resource.user_data.id,
+        aws_api_gateway_resource.user_data_user_id.id,
+        aws_api_gateway_resource.user_data_type.id,
         aws_api_gateway_method.upload_post.id,
         aws_api_gateway_method.status_get.id,
         aws_api_gateway_method.results_get.id,
+        aws_api_gateway_method.user_data_get.id,
+        aws_api_gateway_method.user_data_put.id,
         aws_api_gateway_integration.upload_lambda.id,
         aws_api_gateway_integration.status_lambda.id,
         aws_api_gateway_integration.results_lambda.id,
+        aws_api_gateway_integration.user_data_get_lambda.id,
+        aws_api_gateway_integration.user_data_put_lambda.id,
       ]))
     }
 

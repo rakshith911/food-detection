@@ -92,20 +92,12 @@ export async function verifyDeleteAccountOTPViaApi(email: string, code: string):
     if (!res.ok) {
       const text = await res.text();
       console.error('[DeleteAccountOTP] Verify failed:', res.status, text);
-      Alert.alert(
-        'Verification Failed',
-        'Invalid or expired code. Please try again.'
-      );
       return false;
     }
 
     return true;
   } catch (error: any) {
     console.error('[DeleteAccountOTP] Verify error:', error);
-    Alert.alert(
-      'Verification Failed',
-      'Invalid or expired code. Please try again.'
-    );
     return false;
   }
 }

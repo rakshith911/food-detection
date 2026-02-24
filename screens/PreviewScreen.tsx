@@ -50,7 +50,7 @@ async function scheduleAnalysisCompleteNotification(mealName: string) {
       : `Your analysis for ${name} is ready`;
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Analysis complete',
+        title: 'UKcal',
         body,
       },
       trigger: null,
@@ -113,6 +113,7 @@ export default function PreviewScreen({ imageUri, videoUri, onBack, onAnalyze }:
   const { width, height } = useWindowDimensions();
   const [textInput, setTextInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isTextInputFocused, setIsTextInputFocused] = useState(false);
   const [currentAnalysisId, setCurrentAnalysisId] = useState<string | null>(null);
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
@@ -379,7 +380,7 @@ export default function PreviewScreen({ imageUri, videoUri, onBack, onAnalyze }:
         if (updateAnalysis.rejected.match(result_action)) {
           console.error('Error updating analysis:', result_action.error);
         } else {
-          scheduleAnalysisCompleteNotification(analysisResult.mealName ?? '');
+          scheduleAnalysisCompleteNotification((analysisResult as any).mealName ?? '');
         }
       }
 
@@ -428,7 +429,7 @@ analysisStatus: 'completed',
             analysisProgress: 100,
           },
         }));
-          scheduleAnalysisCompleteNotification(analysisResult.mealName ?? '');
+          scheduleAnalysisCompleteNotification((analysisResult as any).mealName ?? '');
         } else {
           await dispatch(addAnalysis({
             userEmail: user.email,
@@ -448,7 +449,7 @@ analysisStatus: 'completed',
               analysisProgress: 100,
             },
           }));
-          scheduleAnalysisCompleteNotification(analysisResult.mealName ?? '');
+          scheduleAnalysisCompleteNotification((analysisResult as any).mealName ?? '');
         }
       }
 
@@ -483,7 +484,7 @@ analysisStatus: 'completed',
             <ScrollView
               ref={scrollViewRef}
               style={styles.scrollView}
-              contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
+              contentContainerStyle={[styles.scrollContent, { paddingBottom: 30 }]}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               contentInsetAdjustmentBehavior="automatic"
@@ -523,7 +524,7 @@ analysisStatus: 'completed',
               <View style={styles.inputContainer}>
                 <TextInput
                   ref={textInputRef}
-                  style={styles.textInput}
+                  style={[styles.textInput, isTextInputFocused && styles.textInputFocused]}
                   placeholder="You may provide additional details such as dish name, menu description, recipe, etc. (Optional)"
                   value={textInput}
                   onChangeText={setTextInput}
@@ -532,30 +533,33 @@ analysisStatus: 'completed',
                   textAlignVertical="top"
                   placeholderTextColor="#999999"
                   onFocus={() => {
+                    setIsTextInputFocused(true);
                     setTimeout(() => {
                       scrollViewRef.current?.scrollToEnd({ animated: true });
                     }, 300);
                   }}
+                  onBlur={() => setIsTextInputFocused(false)}
                 />
               </View>
             </ScrollView>
           </View>
         </TouchableWithoutFeedback>
 
-        {/* Submit Button - Fixed at Bottom (same as FeedbackScreen) */}
-        <BottomButtonContainer paddingHorizontal={10}>
-          <TouchableOpacity
-            style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
-            onPress={handleSubmit}
-            disabled={isSubmitting}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.submitButtonText}>
-              {isSubmitting ? 'Analyzing...' : 'Submit'}
-            </Text>
-          </TouchableOpacity>
-        </BottomButtonContainer>
       </KeyboardAvoidingView>
+
+      {/* Submit Button - Fixed at Bottom, outside KAV so it doesn't float above keyboard */}
+      <BottomButtonContainer paddingHorizontal={10}>
+        <TouchableOpacity
+          style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+          onPress={handleSubmit}
+          disabled={isSubmitting}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.submitButtonText}>
+            {isSubmitting ? 'Analyzing...' : 'Submit'}
+          </Text>
+        </TouchableOpacity>
+      </BottomButtonContainer>
     </SafeAreaView>
   );
 }
@@ -666,8 +670,8 @@ const styles = StyleSheet.create({
     minHeight: 150,
   },
   textInput: {
-    borderWidth: 3,
-    borderColor: '#EDF5DE',
+    borderWidth: 1,
+    borderColor: '#4a4a4a',
     borderRadius: 12,
     padding: 16,
     fontSize: 14,
@@ -675,6 +679,10 @@ const styles = StyleSheet.create({
     minHeight: 150,
     backgroundColor: '#FFFFFF',
     textAlignVertical: 'top',
+  },
+  textInputFocused: {
+    borderColor: '#7BA21B',
+    borderWidth: 2,
   },
   submitButton: {
     height: 56, // Fixed height

@@ -7,6 +7,7 @@ import {
   Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ScrollView,
   StatusBar,
@@ -14,9 +15,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
-import { login, sendOTP } from '../store/slices/authSlice';
+import { login, sendOTP, logout } from '../store/slices/authSlice';
 import VectorBackButton from '../components/VectorBackButton';
 import Group2076Logo from '../components/Group2076Logo';
 import ScreenLoader from '../components/ScreenLoader';
@@ -69,14 +70,7 @@ export default function OTPScreen({ navigation, route }: { navigation: any; rout
   };
 
   const handleResendOTP = async () => {
-    try {
-      const result = await dispatch(sendOTP({ input: email, method: 'email' }));
-      if (!sendOTP.fulfilled.match(result)) {
-        Alert.alert('Error', 'Failed to resend code. Please try again.');
-      }
-    } catch {
-      Alert.alert('Error', 'Failed to resend code. Please try again.');
-    }
+    await dispatch(sendOTP({ input: email, method: 'email' }));
     setOtp(['', '', '', '', '', '']);
     inputRefs.current[0]?.focus();
   };
@@ -97,16 +91,19 @@ export default function OTPScreen({ navigation, route }: { navigation: any; rout
         // This prevents showing ConsentScreen/TutorialScreen for existing users
       } else if (login.rejected.match(result)) {
         setOtp(['', '', '', '', '', '']);
-        inputRefs.current[0]?.focus();
+        Keyboard.dismiss();
         Alert.alert(
           'Invalid OTP',
           'Invalid OTP. Please try again!',
-          [{ text: 'Resend OTP', onPress: handleResendOTP }]
+          [
+            { text: 'Try Again', style: 'cancel', onPress: () => inputRefs.current[0]?.focus() },
+            { text: 'Resend OTP', onPress: handleResendOTP },
+          ]
         );
       }
     } catch (error) {
       setOtp(['', '', '', '', '', '']);
-      inputRefs.current[0]?.focus();
+      Keyboard.dismiss();
       Alert.alert(
         'Invalid OTP',
         'Invalid OTP. Please try again!',
@@ -129,19 +126,26 @@ export default function OTPScreen({ navigation, route }: { navigation: any; rout
 
   return (
     <ScreenLoader isLoading={isImageLoading}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.container}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 20}
-      >
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          contentInsetAdjustmentBehavior="automatic"
-        >
-        <VectorBackButton onPress={() => navigation.goBack()} />
+        <View style={styles.contentWrapper}>
+          <View style={styles.backButtonWrapper}>
+            <VectorBackButton onPress={() => {
+              dispatch(logout());
+              navigation.goBack();
+            }} />
+          </View>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1 }}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 20}
+          >
+            <ScrollView 
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              contentInsetAdjustmentBehavior="automatic"
+            >
 
         <View style={styles.logoContainer}>
           <Group2076Logo width={280} height={280} onLoad={handleImageLoad} />
@@ -196,16 +200,27 @@ export default function OTPScreen({ navigation, route }: { navigation: any; rout
             </View>
           )}
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
+      </SafeAreaView>
     </ScreenLoader>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+  },
+  contentWrapper: {
+    flex: 1,
+  },
+  backButtonWrapper: {
+    position: 'absolute',
+    top: 16,
+    left: 20,
+    zIndex: 10,
   },
   scrollContent: {
     flexGrow: 1,

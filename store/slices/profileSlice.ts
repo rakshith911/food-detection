@@ -1,5 +1,7 @@
 import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { userService, BusinessProfile, Avatar, UserAccount } from '../../services/UserService';
+import { s3UserDataService, ProfileBackup } from '../../services/S3UserDataService';
+import { backupSettings } from './appSlice';
 
 export interface UserStats {
   totalAnalyses: number;
@@ -43,6 +45,31 @@ const initialState: ProfileState = {
   error: null,
 };
 
+/** Build a ProfileBackup payload from current state and trigger background S3 backup */
+const backupProfileToS3 = async (state: { profile: ProfileState }) => {
+  try {
+    const { userAccount, businessProfile, avatar, profileImage } = state.profile;
+    if (!userAccount?.userId) return;
+
+    const backup: ProfileBackup = {
+      userAccount: {
+        userId: userAccount.userId,
+        email: userAccount.email,
+        createdAt: userAccount.createdAt,
+        hasCompletedProfile: userAccount.hasCompletedProfile,
+      },
+      businessProfile,
+      avatar: avatar ? { id: avatar.id } : null,
+      profileImage,
+      updatedAt: new Date().toISOString(),
+    };
+
+    s3UserDataService.backupInBackground(userAccount.userId, 'profile', backup);
+  } catch (error) {
+    console.warn('[Profile] S3 backup failed silently:', error);
+  }
+};
+
 // Async thunks
 export const loadProfile = createAsyncThunk(
   'profile/loadProfile',
@@ -73,12 +100,19 @@ export const loadProfile = createAsyncThunk(
 
 export const saveBusinessProfile = createAsyncThunk(
   'profile/saveBusinessProfile',
-  async (profileData: BusinessProfile, { rejectWithValue }) => {
+  async (profileData: BusinessProfile, { getState, dispatch, rejectWithValue }) => {
     try {
       const success = await userService.saveBusinessProfile(profileData);
       if (!success) {
         throw new Error('Failed to save profile');
       }
+      // Trigger S3 backup in background after local save
+      const state = getState() as { profile: ProfileState };
+      backupProfileToS3({
+        profile: { ...state.profile, businessProfile: profileData },
+      });
+      // Also backup settings since profile completion status may have changed
+      dispatch(backupSettings());
       return profileData;
     } catch (error) {
       console.error('[Profile] Error saving profile:', error);
@@ -95,7 +129,7 @@ export const updateProfileFields = createAsyncThunk(
     try {
       const state = getState() as { profile: ProfileState };
       const currentProfile = state.profile.businessProfile;
-      
+
       if (!currentProfile) {
         throw new Error('No profile found to update');
       }
@@ -110,6 +144,11 @@ export const updateProfileFields = createAsyncThunk(
         throw new Error('Failed to update profile');
       }
 
+      // Trigger S3 backup in background
+      backupProfileToS3({
+        profile: { ...state.profile, businessProfile: updatedProfile },
+      });
+
       return updatedProfile;
     } catch (error) {
       console.error('[Profile] Error updating profile:', error);
@@ -122,12 +161,19 @@ export const updateProfileFields = createAsyncThunk(
 
 export const setAvatar = createAsyncThunk(
   'profile/setAvatar',
-  async (avatar: Avatar | undefined, { rejectWithValue }) => {
+  async (avatar: Avatar | undefined, { getState, rejectWithValue }) => {
     try {
       const success = await userService.setAvatar(avatar);
       if (!success) {
         throw new Error('Failed to set avatar');
       }
+
+      // Trigger S3 backup in background
+      const state = getState() as { profile: ProfileState };
+      backupProfileToS3({
+        profile: { ...state.profile, avatar: avatar || null },
+      });
+
       return avatar || null;
     } catch (error) {
       console.error('[Profile] Error setting avatar:', error);
@@ -144,7 +190,7 @@ export const updateProfileImage = createAsyncThunk(
     try {
       const state = getState() as { profile: ProfileState };
       const currentProfile = state.profile.businessProfile;
-      
+
       if (!currentProfile) {
         throw new Error('No profile found to update');
       }
@@ -158,6 +204,15 @@ export const updateProfileImage = createAsyncThunk(
       if (!success) {
         throw new Error('Failed to update profile image');
       }
+
+      // Trigger S3 backup in background
+      backupProfileToS3({
+        profile: {
+          ...state.profile,
+          businessProfile: updatedProfile,
+          profileImage: imageUri,
+        },
+      });
 
       return imageUri;
     } catch (error) {

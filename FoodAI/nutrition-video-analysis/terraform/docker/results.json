@@ -1,200 +1,288 @@
 {
-  "job_id": "run-edafc498",
-  "media_name": "test.mov",
-  "media_type": "video",
-  "timestamp": "2026-02-06T02:36:59.531366",
-  "num_frames_processed": 15,
+  "job_id": "run-152b8f3a",
+  "media_name": "paratha.jpeg",
+  "media_type": "image",
+  "timestamp": "2026-02-15T23:49:25.526579",
+  "num_frames_processed": 1,
   "calibration": {
     "pixels_per_cm": 16.0,
     "calibrated": true,
-    "reference_plane_depth_m": "0.42460185"
+    "reference_plane_depth_m": "0.295484"
   },
   "florence_detections": [
     {
       "frame_idx": 0,
-      "caption": "Fried Fish with Stewed Beans and Boiled Cassava. This is a hearty and flavorful meal, characteristic of many West African and Caribbean cuisines. The combination of protein (fish), legumes (beans), and starchy root vegetables provides a well-rounded and satisfying dish. The spiciness of the pepper sauce is likely a key flavor component.",
+      "caption": "Indian Vegetarian Meal Platter. This is a classic and wholesome Indian vegetarian meal, typically served as a lunch or dinner. The combination of flatbread, rice, lentil soup, and vegetable curry provides a balanced and flavorful meal. The presentation suggests a home-style preparation.",
       "detections": [
         {
-          "label": "Fried Fish (Tilapia or similar whole fish)",
+          "label": "Garlic Naan",
           "box": [
-            393.75,
-            582.4166870117188,
-            581.25,
-            1365.666748046875
+            67.0,
+            105.0,
+            439.0,
+            411.0
           ],
-          "box_area": 146859.390625
+          "box_area": 113832.0
         },
         {
-          "label": "Boiled Cassava (Yuca)",
+          "label": "Herb Naan",
           "box": [
-            0.0,
-            0.0,
-            250.0,
-            903.7500610351562
+            270.0,
+            72.0,
+            678.0,
+            381.0
           ],
-          "box_area": 225937.515625
+          "box_area": 126072.0
         },
         {
-          "label": "Stewed Black-Eyed Peas",
+          "label": "White Basmati Rice",
           "box": [
-            156.25,
-            200.83334350585938,
-            531.25,
-            923.8333740234375
+            462.0,
+            331.0,
+            796.0,
+            597.0
           ],
-          "box_area": 271125.0
+          "box_area": 88844.0
         },
         {
-          "label": "Spicy Pepper Sauce",
+          "label": "Baingan Bharta (Eggplant Curry)",
           "box": [
-            175.0,
-            200.83334350585938,
-            487.5,
-            823.4166870117188
+            197.0,
+            430.0,
+            680.0,
+            659.0
           ],
-          "box_area": 194557.296875
+          "box_area": 110607.0
+        },
+        {
+          "label": "Tarka Dal (Lentil Soup)",
+          "box": [
+            312.0,
+            617.0,
+            792.0,
+            946.0
+          ],
+          "box_area": 157920.0
+        },
+        {
+          "label": "Dried Red Chilies (in Dal)",
+          "box": [
+            487.0,
+            800.0,
+            764.0,
+            918.0
+          ],
+          "box_area": 32686.0
         }
       ],
-      "total_detected": 4,
-      "unquantified_ingredients": []
-    },
-    {
-      "frame_idx": 5,
-      "caption": "Fried Fish with Stewed Beans and Boiled Cassava. This is a hearty and flavorful meal, characteristic of many West African and Caribbean cuisines. The combination of protein (fish), legumes (beans), and starchy root vegetables provides a well-rounded and satisfying dish. The spiciness of the pepper sauce is likely a key flavor component.",
-      "detections": [],
-      "total_detected": 0,
-      "unquantified_ingredients": []
-    },
-    {
-      "frame_idx": 10,
-      "caption": "Fried Fish with Stewed Beans and Boiled Cassava. This is a hearty and flavorful meal, characteristic of many West African and Caribbean cuisines. The combination of protein (fish), legumes (beans), and starchy root vegetables provides a well-rounded and satisfying dish. The spiciness of the pepper sauce is likely a key flavor component.",
-      "detections": [],
-      "total_detected": 0,
+      "total_detected": 6,
       "unquantified_ingredients": []
     }
   ],
   "tracking": {
     "objects": {
-      "ID1_Fried Fish (Tilapia or similar whole fish)": {
-        "label": "Fried Fish (Tilapia or similar whole fish)",
+      "ID1_Garlic Naan": {
+        "label": "Garlic Naan",
         "statistics": {
-          "max_volume_ml": 1000.0,
-          "median_volume_ml": 1000.0,
-          "mean_volume_ml": 1000.0,
-          "max_height_cm": 5.920762658938549,
-          "max_area_cm2": 440.51953125,
+          "max_volume_ml": 500.9948861576738,
+          "median_volume_ml": 500.9948861576738,
+          "mean_volume_ml": 500.9948861576738,
+          "max_height_cm": 3.943695341270592,
+          "max_area_cm2": 195.44140625,
           "num_frames": 1,
-          "gemini_grams_g": 350.0,
-          "quantity": 3
-        }
-      },
-      "ID2_Boiled Cassava (Yuca)": {
-        "label": "Boiled Cassava (Yuca)",
-        "statistics": {
-          "max_volume_ml": 344.68981527011215,
-          "median_volume_ml": 344.68981527011215,
-          "mean_volume_ml": 344.68981527011215,
-          "max_height_cm": 3.4815161186386,
-          "max_area_cm2": 152.31640625,
-          "num_frames": 1,
-          "gemini_grams_g": 200.0,
+          "gemini_grams_g": 110.0,
           "quantity": 1
-        }
+        },
+        "obj_id": 1,
+        "box": [
+          67.0,
+          105.0,
+          439.0,
+          411.0
+        ]
       },
-      "ID3_Stewed Black-Eyed Peas": {
-        "label": "Stewed Black-Eyed Peas",
+      "ID2_Herb Naan": {
+        "label": "Herb Naan",
         "statistics": {
-          "max_volume_ml": 716.3571205800722,
-          "median_volume_ml": 716.3571205800722,
-          "mean_volume_ml": 716.3571205800722,
-          "max_height_cm": 4.442923005901655,
-          "max_area_cm2": 248.0546875,
+          "max_volume_ml": 850.7394007839383,
+          "median_volume_ml": 850.7394007839383,
+          "mean_volume_ml": 850.7394007839383,
+          "max_height_cm": 4.704979932655597,
+          "max_area_cm2": 278.1796875,
           "num_frames": 1,
-          "gemini_grams_g": 200.0,
+          "gemini_grams_g": 110.0,
           "quantity": 1
-        }
+        },
+        "obj_id": 2,
+        "box": [
+          270.0,
+          72.0,
+          678.0,
+          381.0
+        ]
       },
-      "ID4_Spicy Pepper Sauce": {
-        "label": "Spicy Pepper Sauce",
+      "ID3_White Basmati Rice": {
+        "label": "White Basmati Rice",
         "statistics": {
-          "max_volume_ml": 752.9752929140881,
-          "median_volume_ml": 752.9752929140881,
-          "mean_volume_ml": 752.9752929140881,
-          "max_height_cm": 4.517371786732188,
-          "max_area_cm2": 256.4375,
+          "max_volume_ml": 573.3470295537077,
+          "median_volume_ml": 573.3470295537077,
+          "mean_volume_ml": 573.3470295537077,
+          "max_height_cm": 4.125071197253336,
+          "max_area_cm2": 213.83203125,
           "num_frames": 1,
-          "gemini_grams_g": 150.0,
+          "gemini_grams_g": 180.0,
           "quantity": 1
-        }
+        },
+        "obj_id": 3,
+        "box": [
+          462.0,
+          331.0,
+          796.0,
+          597.0
+        ]
+      },
+      "ID4_Baingan Bharta (Eggplant Curry)": {
+        "label": "Baingan Bharta (Eggplant Curry)",
+        "statistics": {
+          "max_volume_ml": 586.2146346785366,
+          "median_volume_ml": 586.2146346785366,
+          "mean_volume_ml": 586.2146346785366,
+          "max_height_cm": 4.155702777264247,
+          "max_area_cm2": 217.01953125,
+          "num_frames": 1,
+          "gemini_grams_g": 160.0,
+          "quantity": 1
+        },
+        "obj_id": 4,
+        "box": [
+          197.0,
+          430.0,
+          680.0,
+          659.0
+        ]
+      },
+      "ID5_Tarka Dal (Lentil Soup)": {
+        "label": "Tarka Dal (Lentil Soup)",
+        "statistics": {
+          "max_volume_ml": 500.0,
+          "median_volume_ml": 500.0,
+          "mean_volume_ml": 500.0,
+          "max_height_cm": 4.92060750988628,
+          "max_area_cm2": 304.26171875,
+          "num_frames": 1,
+          "gemini_grams_g": 280.0,
+          "quantity": 1
+        },
+        "obj_id": 5,
+        "box": [
+          312.0,
+          617.0,
+          792.0,
+          946.0
+        ]
+      },
+      "ID6_Dried Red Chilies (in Dal)": {
+        "label": "Dried Red Chilies (in Dal)",
+        "statistics": {
+          "max_volume_ml": 45.80053769848013,
+          "median_volume_ml": 45.80053769848013,
+          "mean_volume_ml": 45.80053769848013,
+          "max_height_cm": 1.824609033739638,
+          "max_area_cm2": 41.8359375,
+          "num_frames": 1,
+          "gemini_grams_g": 2.0,
+          "quantity": 2
+        },
+        "obj_id": 6,
+        "box": [
+          487.0,
+          800.0,
+          764.0,
+          918.0
+        ]
       }
     },
-    "total_objects": 4,
-    "caption": "Fried Fish with Stewed Beans and Boiled Cassava. This is a hearty and flavorful meal, characteristic of many West African and Caribbean cuisines. The combination of protein (fish), legumes (beans), and starchy root vegetables provides a well-rounded and satisfying dish. The spiciness of the pepper sauce is likely a key flavor component."
+    "total_objects": 6,
+    "caption": "Indian Vegetarian Meal Platter. This is a classic and wholesome Indian vegetarian meal, typically served as a lunch or dinner. The combination of flatbread, rice, lentil soup, and vegetable curry provides a balanced and flavorful meal. The presentation suggests a home-style preparation."
   },
   "nutrition": {
     "items": [
       {
-        "food_name": "Fried Fish (Tilapia or similar whole fish)",
-        "quantity": 3,
-        "volume_ml": 1000.0,
-        "density_g_per_ml": 1.05,
-        "density_source": "fallback",
-        "density_similarity": 0.6117311716079712,
-        "mass_g": 350.0,
-        "calories_per_100g": 15.0,
-        "total_calories": 52.5,
-        "calorie_source": "fallback",
-        "calorie_similarity": 0.3202817440032959,
-        "matched_food": "salad mixed greens"
-      },
-      {
-        "food_name": "Boiled Cassava (Yuca)",
+        "food_name": "Garlic Naan",
         "quantity": 1,
-        "volume_ml": 344.68981527011215,
+        "volume_ml": 500.9948861576738,
         "density_g_per_ml": 0.85,
         "density_source": "fallback",
-        "density_similarity": 0.4297231435775757,
-        "mass_g": 200.0,
+        "density_similarity": 0.42351895570755005,
+        "mass_g": 110.0,
         "calories_per_100g": 130.0,
-        "total_calories": 260.0,
+        "total_calories": 143.0,
         "calorie_source": "fallback",
-        "calorie_similarity": 0.4052462577819824,
+        "calorie_similarity": 0.3656814694404602,
         "matched_food": "rice white cooked"
       },
       {
-        "food_name": "Stewed Black-Eyed Peas",
+        "food_name": "Herb Naan",
         "quantity": 1,
-        "volume_ml": 716.3571205800722,
-        "density_g_per_ml": 0.75,
+        "volume_ml": 850.7394007839383,
+        "density_g_per_ml": 0.85,
         "density_source": "fallback",
-        "density_similarity": 0.4253222346305847,
-        "mass_g": 200.0,
+        "density_similarity": 0.2597149908542633,
+        "mass_g": 110.0,
         "calories_per_100g": 15.0,
-        "total_calories": 30.0,
+        "total_calories": 16.5,
         "calorie_source": "fallback",
-        "calorie_similarity": 0.3968771696090698,
-        "matched_food": "salad mixed greens"
+        "calorie_similarity": 0.24108073115348816,
+        "matched_food": "lettuce"
       },
       {
-        "food_name": "Spicy Pepper Sauce",
+        "food_name": "Baingan Bharta (Eggplant Curry)",
         "quantity": 1,
-        "volume_ml": 752.9752929140881,
-        "density_g_per_ml": 0.95,
+        "volume_ml": 586.2146346785366,
+        "density_g_per_ml": 0.85,
         "density_source": "fallback",
-        "density_similarity": 0.4233522415161133,
-        "mass_g": 150.0,
-        "calories_per_100g": 131.0,
-        "total_calories": 196.5,
+        "density_similarity": 0.38637682795524597,
+        "mass_g": 160.0,
+        "calories_per_100g": 130.0,
+        "total_calories": 208.0,
         "calorie_source": "fallback",
-        "calorie_similarity": 0.4168192148208618,
-        "matched_food": "spaghetti pasta cooked"
+        "calorie_similarity": 0.3864232897758484,
+        "matched_food": "rice white cooked"
+      },
+      {
+        "food_name": "Tarka Dal (Lentil Soup)",
+        "quantity": 1,
+        "volume_ml": 500.0,
+        "density_g_per_ml": 1.0,
+        "density_source": "fallback",
+        "density_similarity": 0.4933401346206665,
+        "mass_g": 280.0,
+        "calories_per_100g": 150.0,
+        "total_calories": 420.0,
+        "calorie_source": "default",
+        "calorie_similarity": 0.0,
+        "matched_food": "unknown"
+      },
+      {
+        "food_name": "Dried Red Chilies (in Dal)",
+        "quantity": 2,
+        "volume_ml": 45.80053769848013,
+        "density_g_per_ml": 0.35,
+        "density_source": "fallback",
+        "density_similarity": 0.41289299726486206,
+        "mass_g": 2.0,
+        "calories_per_100g": 15.0,
+        "total_calories": 0.3,
+        "calorie_source": "fallback",
+        "calorie_similarity": 0.45313531160354614,
+        "matched_food": "salad mixed greens"
       }
     ],
     "summary": {
-      "total_food_volume_ml": 2814.0222287642723,
-      "total_mass_g": 900.0,
-      "total_calories_kcal": 539.0,
-      "num_food_items": 4
+      "total_food_volume_ml": 2483.749459318629,
+      "total_mass_g": 662.0,
+      "total_calories_kcal": 787.8,
+      "num_food_items": 5
     }
   },
   "status": "completed"

@@ -80,6 +80,7 @@ export default function FeedbackScreen() {
   );
   const [comment, setComment] = useState(item?.feedback?.comment || '');
   const [isSaving, setIsSaving] = useState(false);
+  const [isCommentFocused, setIsCommentFocused] = useState(false);
   const commentInputRef = useRef<TextInput>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const [showFullImageModal, setShowFullImageModal] = useState(false);
@@ -341,7 +342,7 @@ export default function FeedbackScreen() {
           <ScrollView
             ref={scrollViewRef}
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: 5 }]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
@@ -540,7 +541,7 @@ export default function FeedbackScreen() {
           <View style={styles.commentSection}>
             <TextInput
               ref={commentInputRef}
-              style={styles.commentInput}
+              style={[styles.commentInput, isCommentFocused && styles.commentInputFocused]}
               placeholder="Anything you would like to tell us? (e.g., wrong item, portion too high, etc.)"
               placeholderTextColor="#9CA3AF"
               value={comment}
@@ -549,26 +550,17 @@ export default function FeedbackScreen() {
               numberOfLines={4}
               textAlignVertical="top"
               onFocus={() => {
+                setIsCommentFocused(true);
                 setTimeout(() => {
                   scrollViewRef.current?.scrollToEnd({ animated: true });
                 }, 300);
               }}
+              onBlur={() => setIsCommentFocused(false)}
             />
           </View>
         </View>
         </ScrollView>
 
-          {/* Save Button - Fixed at Bottom */}
-          <BottomButtonContainer>
-            <TouchableOpacity
-              activeOpacity={0.9}
-              style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
-              onPress={handleSave}
-              disabled={isSaving}
-            >
-              <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save'}</Text>
-            </TouchableOpacity>
-          </BottomButtonContainer>
         </KeyboardAvoidingView>
       ) : (
         <View style={{ flex: 1 }}>
@@ -581,7 +573,7 @@ export default function FeedbackScreen() {
           <ScrollView
             ref={scrollViewRef}
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 }]}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: 5 }]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
@@ -762,7 +754,7 @@ export default function FeedbackScreen() {
               <View style={styles.commentSection}>
                 <TextInput
                   ref={commentInputRef}
-                  style={styles.commentInput}
+                  style={[styles.commentInput, isCommentFocused && styles.commentInputFocused]}
                   placeholder="Anything you would like to tell us? (e.g., wrong item, portion too high, etc.)"
                   placeholderTextColor="#9CA3AF"
                   value={comment}
@@ -771,28 +763,31 @@ export default function FeedbackScreen() {
                   numberOfLines={4}
                   textAlignVertical="top"
                   onFocus={() => {
+                    setIsCommentFocused(true);
                     setTimeout(() => {
                       scrollViewRef.current?.scrollToEnd({ animated: true });
                     }, 300);
                   }}
+                  onBlur={() => setIsCommentFocused(false)}
                 />
               </View>
             </View>
           </ScrollView>
 
-          {/* Save Button - Fixed at Bottom */}
-          <BottomButtonContainer>
-            <TouchableOpacity
-              activeOpacity={0.9}
-              style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
-              onPress={handleSave}
-              disabled={isSaving}
-            >
-              <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save'}</Text>
-            </TouchableOpacity>
-          </BottomButtonContainer>
         </View>
       )}
+
+      {/* Save Button - Fixed at Bottom, outside KAV so it doesn't float above keyboard */}
+      <BottomButtonContainer>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          style={[styles.saveButton, isSaving && styles.saveButtonDisabled]}
+          onPress={handleSave}
+          disabled={isSaving}
+        >
+          <Text style={styles.saveButtonText}>{isSaving ? 'Saving...' : 'Save'}</Text>
+        </TouchableOpacity>
+      </BottomButtonContainer>
     </SafeAreaView>
   );
 }
@@ -951,7 +946,7 @@ const styles = StyleSheet.create({
   },
   commentInput: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#4a4a4a',
     borderRadius: 8,
     padding: 12,
     fontSize: 14,
@@ -959,6 +954,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     minHeight: 100,
     textAlignVertical: 'top',
+  },
+  commentInputFocused: {
+    borderColor: '#7BA21B',
+    borderWidth: 2,
   },
   footer: {
     paddingHorizontal: 16,

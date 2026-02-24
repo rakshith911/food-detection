@@ -78,6 +78,7 @@ export default function SendFeedbackScreen() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isCommentFocused, setIsCommentFocused] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
   const commentsContainerRef = useRef<View>(null);
 
@@ -242,7 +243,7 @@ export default function SendFeedbackScreen() {
               Give us your feedback
             </Text>
             <TextInput
-              style={styles.commentsInput}
+              style={[styles.commentsInput, isCommentFocused && styles.commentsInputFocused]}
               onChangeText={setAdditionalComments}
               value={additionalComments}
               multiline={true}
@@ -250,7 +251,8 @@ export default function SendFeedbackScreen() {
               placeholder="Enter your comments here..."
               placeholderTextColor="#9CA3AF"
               textAlignVertical="top"
-              onFocus={scrollToComments}
+              onFocus={() => { setIsCommentFocused(true); scrollToComments(); }}
+              onBlur={() => setIsCommentFocused(false)}
             />
           </View>
         )}
@@ -397,8 +399,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   commentsInput: {
-    borderWidth: 2,
-    borderColor: '#E5E7EB',
+    borderWidth: 1,
+    borderColor: '#4a4a4a',
     borderRadius: 8,
     padding: 16,
     fontSize: 16,
@@ -406,6 +408,10 @@ const styles = StyleSheet.create({
     height: 200,
     backgroundColor: '#FFFFFF',
     textAlignVertical: 'top',
+  },
+  commentsInputFocused: {
+    borderColor: '#7BA21B',
+    borderWidth: 2,
   },
   nextButton: {
     height: 56,

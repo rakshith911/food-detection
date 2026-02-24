@@ -7,16 +7,12 @@ import {
   StatusBar,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useAppDispatch } from '../store/hooks';
-import { setShowWelcome } from '../store/slices/appSlice';
 import Group2076Logo from '../components/Group2076Logo';
 
 export default function WelcomeScreen() {
   const navigation = useNavigation<any>();
-  const dispatch = useAppDispatch();
 
   const handleLogin = () => {
-    dispatch(setShowWelcome(false));
     navigation.navigate('EmailLogin');
   };
 

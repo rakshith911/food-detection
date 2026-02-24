@@ -102,10 +102,6 @@ export default function EditProfileStep2Screen() {
       { _id: '1', value: 'Eat-in' },
       { _id: '2', value: 'Takeaway' },
       { _id: '3', value: 'Delivery' },
-      { _id: '4', value: 'Eat-in & Takeaway' },
-      { _id: '5', value: 'Eat-in & Delivery' },
-      { _id: '6', value: 'Takeaway & Delivery' },
-      { _id: '7', value: 'All (Eat-in, Takeaway & Delivery)' },
     ],
     selectedList: [],
   });
@@ -561,7 +557,7 @@ export default function EditProfileStep2Screen() {
             // Reset navigation stack to go back to Results, clearing edit profile screens
             navigation.reset({
               index: 0,
-              routes: [{ name: 'Profile' }],
+              routes: [{ name: 'Profile' as never }],
             });
           },
         },
@@ -884,7 +880,7 @@ const styles = StyleSheet.create({
   },
   profileImageContainer: {
     alignItems: 'center',
-    marginVertical: 20,
+    marginVertical: 6,
   },
   profileImage: {
     width: 120,
@@ -910,15 +906,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 4,
+    marginTop: 2,
   },
   formContainer: {
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 4,
   },
   inputWrapper: {
     width: 325,
-    marginBottom: 16,
+    marginBottom: 6,
   },
   uploadMenuButton: {
     flexDirection: 'row',
