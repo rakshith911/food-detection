@@ -6,7 +6,7 @@ import { userService } from '../services/UserService';
 
 // 🔧 CONFIGURATION: Switch between mock and real AWS Cognito
 // Set to FALSE for mock (testing) or TRUE for real AWS Cognito (production)
-const USE_REAL_AWS_COGNITO = false; // 🧪 Mock OTP enabled for testing
+const USE_REAL_AWS_COGNITO = true; // ✅ Real AWS Cognito — sends OTP via email
 
 // Select the appropriate service based on configuration
 const cognitoOTPService: CognitoOTPService = (USE_REAL_AWS_COGNITO ? realCognitoOTPService : mockCognitoService) as CognitoOTPService;

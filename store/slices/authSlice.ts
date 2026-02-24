@@ -7,6 +7,7 @@ import { s3UserDataService, AllUserData } from '../../services/S3UserDataService
 import { clearProfile } from './profileSlice';
 import { clearHistoryLocal } from './historySlice';
 import { backupSettings } from './appSlice';
+import { loadProfileFromS3, loadHistoryFromS3 } from '../../services/S3UserDataService';
 
 // 🔧 CONFIGURATION: Switch between mock and real AWS Cognito
 const USE_REAL_AWS_COGNITO = true; // 🚀 Real AWS Cognito enabled
@@ -42,8 +43,33 @@ const restoreUserDataFromS3 = async (userId: string, email: string): Promise<boo
     console.log('[Auth] Checking S3 for backed-up user data...');
     const s3Data: AllUserData = await s3UserDataService.restoreAll(userId);
 
-    const hasAnyData = s3Data.profile || s3Data.history || s3Data.settings;
+    let hasAnyData = s3Data.profile || s3Data.history || s3Data.settings;
+
+    // Fallback: check email-based S3 path (used by UserService and S3HistoryAPI)
     if (!hasAnyData) {
+      console.log('[Auth] No userId-path S3 data, checking email-path fallback...');
+      const [emailProfile, emailHistory] = await Promise.all([
+        loadProfileFromS3(email),
+        loadHistoryFromS3(email),
+      ]);
+      if (emailProfile || (emailHistory && emailHistory.length > 0)) {
+        console.log('[Auth] Found data at email-path S3, restoring...');
+        if (emailProfile) {
+          await AsyncStorage.setItem('user_profile', JSON.stringify(emailProfile));
+          const hasCompleted = (emailProfile as any).hasCompletedProfile === true;
+          if (hasCompleted) {
+            await AsyncStorage.setItem('business_profile_completed', 'true');
+            await AsyncStorage.setItem('user_consent', 'true');
+          }
+        }
+        if (emailHistory && emailHistory.length > 0) {
+          const mockData: { [key: string]: any[] } = {};
+          mockData[email] = emailHistory;
+          await AsyncStorage.setItem('mockHistoryData', JSON.stringify(mockData));
+          console.log('[Auth] History restored from email-path S3:', emailHistory.length, 'entries');
+        }
+        return true;
+      }
       console.log('[Auth] No S3 backup found for this user');
       return false;
     }
@@ -182,6 +208,7 @@ export const login = createAsyncThunk(
           await AsyncStorage.removeItem('consent_date');
           await AsyncStorage.removeItem('business_profile_step1'); // Clear any saved Step 1 data
           await AsyncStorage.removeItem('edit_profile_step1'); // Clear any saved edit profile data
+          await AsyncStorage.removeItem('user_profile'); // Clear previous user's profile data
 
           // Pass Cognito user ID if available (for DynamoDB mode)
           userAccount = await userService.createUserAccount(input, verificationResult.userId);
@@ -266,25 +293,27 @@ export const logout = createAsyncThunk(
   'auth/logout',
   async (_, { dispatch }) => {
     try {
-      // Logout from Cognito (works for both mock and real)
+      // Logout from Cognito
       await cognitoOTPService.logout();
-      
-      // Clear auth state but keep user account data
-      // This allows users to login again with the same email and keep their data
-      await AsyncStorage.removeItem('user');
-      
-      // Clear profile state (will be reloaded on next login)
+
+      // Wipe ALL local user data — S3 is the source of truth.
+      // On next login, restoreUserDataFromS3 restores the user's data from S3.
+      await AsyncStorage.multiRemove([
+        'user',
+        'user_account',
+        'user_profile',
+        'business_profile_completed',
+        'user_consent',
+        'consent_date',
+        'business_profile_step1',
+        'edit_profile_step1',
+        'mockHistoryData',
+      ]);
+
       dispatch(clearProfile());
-      
-      // Clear history state (will be reloaded on next login)
       dispatch(clearHistoryLocal());
-      
-      // Note: We're NOT deleting the user account here
-      // This allows users to login again and reuse their existing account
-      // If you want to delete the account, use a separate "Delete Account" action
-      
-      console.log('[Auth] Logout completed successfully');
-      console.log('[Auth] User account preserved for future login');
+
+      console.log('[Auth] Logout completed — local data cleared, S3 is source of truth');
     } catch (error) {
       console.error('Error during logout:', error);
       throw error;
@@ -331,19 +360,19 @@ export const deleteAccount = createAsyncThunk(
   'auth/deleteAccount',
   async (_, { dispatch }) => {
     try {
-      // Anonymize user account (email is anonymized, data is preserved)
       await userService.deleteUserAccount();
-      
-      // Logout from Cognito
       await cognitoOTPService.logout();
-      
-      // Clear auth state
-      await AsyncStorage.removeItem('user');
-      
-      // Clear profile state
+
+      await AsyncStorage.multiRemove([
+        'user', 'user_account', 'user_profile',
+        'business_profile_completed', 'user_consent', 'consent_date',
+        'business_profile_step1', 'edit_profile_step1', 'mockHistoryData',
+      ]);
+
       dispatch(clearProfile());
-      
-      console.log('[Auth] Account deleted (anonymized) successfully');
+      dispatch(clearHistoryLocal());
+
+      console.log('[Auth] Account deleted — local data cleared');
       return { success: true };
     } catch (error) {
       console.error('Error during account deletion:', error);
@@ -356,19 +385,19 @@ export const withdrawParticipation = createAsyncThunk(
   'auth/withdrawParticipation',
   async (_, { dispatch }) => {
     try {
-      // Anonymize user account (email is anonymized, data is preserved)
       await userService.withdrawParticipation();
-      
-      // Logout from Cognito
       await cognitoOTPService.logout();
-      
-      // Clear auth state
-      await AsyncStorage.removeItem('user');
-      
-      // Clear profile state
+
+      await AsyncStorage.multiRemove([
+        'user', 'user_account', 'user_profile',
+        'business_profile_completed', 'user_consent', 'consent_date',
+        'business_profile_step1', 'edit_profile_step1', 'mockHistoryData',
+      ]);
+
       dispatch(clearProfile());
-      
-      console.log('[Auth] Participation withdrawn (anonymized) successfully');
+      dispatch(clearHistoryLocal());
+
+      console.log('[Auth] Participation withdrawn — local data cleared');
       return { success: true };
     } catch (error) {
       console.error('Error during withdrawal:', error);
