@@ -177,45 +177,18 @@ export default function MealDetailScreen() {
     }
   }, [item?.id, item?.job_id, user?.email, dispatch]);
   
-  // Initialize state from item data if it exists, otherwise use defaults
+  // Initialize from saved dish contents; empty array when none saved yet — no fake defaults
   const [dishContents, setDishContents] = useState<DishContent[]>(
-    item?.dishContents && item.dishContents.length > 0
-      ? item.dishContents
-      : [
-          { id: '1', name: 'Bread', weight: '250', calories: '100' },
-          { id: '2', name: 'Chicken', weight: '150', calories: '400' },
-          { id: '3', name: 'Bread', weight: '250', calories: '100' },
-        ]
+    item?.dishContents ?? []
   );
   const [mealName, setMealName] = useState(item?.mealName || 'Burger');
-  // Total calories = sum of all dish content rows; fall back to API value when sum is 0
+  // Total calories = sum of all dish content rows only; never falls back to API value
   const totalCalories = useMemo(() => {
-    const sum = dishContents.reduce((acc, row) => {
+    return dishContents.reduce((acc, row) => {
       const cal = Number(row.calories);
       return acc + (Number.isFinite(cal) ? cal : 0);
     }, 0);
-    return sum > 0 ? sum : (item?.nutritionalInfo?.calories ?? 0);
-  }, [dishContents, item?.nutritionalInfo?.calories]);
-
-  // If total calories > 0, ensure no individual dish has 0 calories (set to 1)
-  useEffect(() => {
-    if (totalCalories > 0) {
-      setDishContents(prev => {
-        const hasZero = prev.some(row => {
-          const cal = Number(row.calories);
-          return !Number.isFinite(cal) || cal === 0;
-        });
-        if (!hasZero) return prev;
-        return prev.map(row => {
-          const cal = Number(row.calories);
-          if (!Number.isFinite(cal) || cal === 0) {
-            return { ...row, calories: '1' };
-          }
-          return row;
-        });
-      });
-    }
-  }, [totalCalories]);
+  }, [dishContents]);
 
   // Track which input is currently focused
   const focusedInputRef = useRef<{ rowId: string; field: string } | null>(null);
@@ -374,6 +347,27 @@ export default function MealDetailScreen() {
       setIsSaving(false);
     }
   }, [item, user?.email, mealName, dishContents, totalCalories, dispatch]);
+
+  // Always keep the ref pointing at the latest saveChanges closure
+  const saveChangesRef = useRef(saveChanges);
+  useEffect(() => {
+    saveChangesRef.current = saveChanges;
+  }, [saveChanges]);
+
+  // Auto-save whenever dishContents or mealName changes.
+  // Skips the initial mount so we don't fire an unnecessary save on screen open.
+  // Uses a ref so the effect deps stay stable and only [dishContents, mealName] retrigger it.
+  const isFirstRenderRef = useRef(true);
+  useEffect(() => {
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      saveChangesRef.current();
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [dishContents, mealName]);
 
   // Reset scroll position when returning to this screen
   useFocusEffect(
@@ -736,7 +730,7 @@ export default function MealDetailScreen() {
                 <Text style={styles.mealName}>{mealName}</Text>
               </TouchableOpacity>
             )}
-            <Text style={styles.mealCalories}>{totalCalories} Kcal</Text>
+            <Text style={styles.mealCalories}>{dishContents.length === 0 ? '-' : `${totalCalories} Kcal`}</Text>
           </View>
 
           <View style={styles.mealActions}>
@@ -1125,7 +1119,7 @@ const styles = StyleSheet.create({
   },
   tableInput: {
     height: 40,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: '#E5E7EB',
     borderRadius: 4,
     paddingHorizontal: 12,
@@ -1134,6 +1128,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   inputFocused: {
+    borderWidth: 2,
     borderColor: '#7BA21B',
   },
   actionButton: {

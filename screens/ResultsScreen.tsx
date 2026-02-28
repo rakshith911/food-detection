@@ -340,11 +340,15 @@ export default function ResultsScreen({ navigation: navigationProp }: { navigati
     const isPendingOrAnalyzing =
       isAnalyzing ||
       (hasNoResultYet && item.analysisStatus !== 'failed');
-    const hasZeroCalories = isCompletedOrFailed && totalCalories === 0;
+    // Only treat as "unidentified" when there is truly no data — no meal name and no calories.
+    // A user-cleared entry (calories=0 but mealName set) should stay tappable and show "-".
+    const hasZeroCalories = isCompletedOrFailed && totalCalories === 0 && !hasMealName;
     const titleText = isPendingOrAnalyzing ? '' : (hasZeroCalories ? 'Unidentified Food' : (item.mealName || ''));
     const subtitleText = isPendingOrAnalyzing
       ? 'Analyzing...'
-      : `${item.nutritionalInfo?.calories ?? 0} Kcal`;
+      : totalCalories === 0
+      ? '-'
+      : `${totalCalories} Kcal`;
     const translateX = getSwipePosition(item.id);
 
     return (

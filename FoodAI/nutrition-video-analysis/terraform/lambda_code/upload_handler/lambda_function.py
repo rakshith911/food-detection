@@ -11,10 +11,13 @@ s3_config = Config(signature_version='s3v4')
 s3 = boto3.client('s3', config=s3_config)
 dynamodb = boto3.resource('dynamodb')
 sqs = boto3.client('sqs')
+lambda_client = boto3.client('lambda')
 
 S3_VIDEOS_BUCKET = os.environ.get('S3_VIDEOS_BUCKET')
 DYNAMODB_JOBS_TABLE = os.environ.get('DYNAMODB_JOBS_TABLE')
 SQS_VIDEO_QUEUE_URL = os.environ.get('SQS_VIDEO_QUEUE_URL')
+# Name of the gemini_processor Lambda function (set this env var after deploying it)
+GEMINI_PROCESSOR_LAMBDA = os.environ.get('GEMINI_PROCESSOR_LAMBDA_NAME', 'gemini_processor')
 
 
 def lambda_handler(event, context):
@@ -233,6 +236,63 @@ def lambda_handler(event, context):
                 ExpiresIn=86400
             )
             return {'statusCode': 200, 'headers': headers, 'body': json.dumps({'url': get_url})}
+
+        elif request_type == 'confirm_gemini':
+            # Confirm upload complete and process directly with Gemini (no SQS / ECS pipeline)
+            confirm_job_id = body.get('job_id')
+            if not confirm_job_id:
+                return {
+                    'statusCode': 400,
+                    'headers': headers,
+                    'body': json.dumps({'error': 'job_id is required to confirm upload'})
+                }
+
+            # Get job record
+            table = dynamodb.Table(DYNAMODB_JOBS_TABLE)
+            response = table.get_item(Key={'job_id': confirm_job_id})
+
+            if 'Item' not in response:
+                return {
+                    'statusCode': 404,
+                    'headers': headers,
+                    'body': json.dumps({'error': 'Job not found'})
+                }
+
+            job = response['Item']
+
+            # Mark as queued
+            table.update_item(
+                Key={'job_id': confirm_job_id},
+                UpdateExpression='SET #status = :status, updated_at = :updated_at',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':status': 'queued',
+                    ':updated_at': datetime.utcnow().isoformat() + 'Z'
+                }
+            )
+
+            # Invoke gemini_processor Lambda asynchronously (fire-and-forget)
+            # The Lambda updates DynamoDB when done; frontend polls /api/status/{job_id}
+            payload = {
+                'job_id':    confirm_job_id,
+                's3_bucket': S3_VIDEOS_BUCKET,
+                's3_key':    job['s3_key'],
+            }
+            lambda_client.invoke(
+                FunctionName=GEMINI_PROCESSOR_LAMBDA,
+                InvocationType='Event',  # async — returns immediately
+                Payload=json.dumps(payload),
+            )
+
+            return {
+                'statusCode': 200,
+                'headers': headers,
+                'body': json.dumps({
+                    'job_id': confirm_job_id,
+                    'status': 'queued',
+                    'message': 'Media queued for Gemini analysis'
+                })
+            }
 
         else:
             return {

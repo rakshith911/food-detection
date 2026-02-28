@@ -11,55 +11,72 @@
  *                                                        AND delete-account, since both call
  *                                                        resetPassword in the app)
  *
- * Logo: upload assets/icon.png to an S3 bucket with public read and update LOGO_URL below.
- * Example: https://ukcal-assets.s3.amazonaws.com/logo.png
+ * Logo: upload PHOTO-2026-02-22-22-02-16.jpg to S3 as logo-full.png with public read.
+ * URL: https://ukcal-assets.s3.amazonaws.com/logo-full.png
  */
 
-const LOGO_URL = 'https://ukcal-assets.s3.amazonaws.com/icon.png';
+const LOGO_URL = 'https://ukcal-assets.s3.amazonaws.com/logo-full.png';
 
-// ── Shared layout helpers ────────────────────────────────────────────────────
+// ── Email template ────────────────────────────────────────────────────────────
 
-function header() {
-  return `
-<td style="padding: 36px 40px 24px 40px; text-align: center; background-color: #7BA21B; border-radius: 16px 16px 0 0;">
-  <div style="width: 76px; height: 76px; border-radius: 18px; overflow: hidden; background-color: #ffffff; margin: 0 auto 16px auto; box-shadow: 0 2px 10px rgba(0,0,0,0.18);">
-    <img src="${LOGO_URL}" alt="UKcal" width="76" height="76" style="display: block; width: 76px; height: 76px;" />
-  </div>
-  <h1 style="margin: 0; color: #ffffff; font-size: 26px; font-weight: 700; letter-spacing: -0.5px;">UKcal</h1>
-  <p style="margin: 6px 0 0 0; color: rgba(255,255,255,0.9); font-size: 13px;">Smart Nutrition Tracking</p>
-</td>`;
-}
-
-function otpBox() {
-  return `
-<div style="background: linear-gradient(135deg, #f0f7e6 0%, #e8f5d6 100%); border: 2px solid #7BA21B; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 30px;">
-  <p style="margin: 0 0 8px 0; color: #5d7d14; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Your Verification Code</p>
-  <p style="margin: 0; color: #7BA21B; font-size: 36px; font-weight: 700; letter-spacing: 6px; font-family: 'Courier New', monospace;">{####}</p>
-</div>`;
-}
-
-function footer() {
-  return `
-<td style="padding: 24px 40px; background-color: #f9fafb; border-radius: 0 0 16px 16px; border-top: 1px solid #e5e7eb;">
-  <p style="margin: 0 0 8px 0; color: #6b7280; font-size: 12px; text-align: center;">© 2025 UKcal. All rights reserved.</p>
-  <p style="margin: 0; color: #9ca3af; font-size: 11px; text-align: center;">This is an automated message. Please do not reply.</p>
-</td>`;
-}
-
-function wrap(bodyContent) {
+function buildEmail() {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
 </head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f5f7f5;">
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f5f7f5;">
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background-color: #f9fafc;">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f9fafc;">
 <tr><td style="padding: 40px 20px;">
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 480px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
-<tr>${header()}</tr>
-<tr><td style="padding: 40px;">${bodyContent}</td></tr>
-<tr>${footer()}</tr>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 460px; margin: 0 auto; background-color: #ffffff; border-radius: 20px; border: 1.5px solid #7ba21b; overflow: hidden;">
+
+  <!-- Logo Section -->
+  <tr>
+    <td align="center" bgcolor="#eef7e2" style="padding: 44px 40px 40px 40px; text-align: center; background-color: #eef7e2; border-radius: 18px 18px 0 0;">
+      <img src="${LOGO_URL}" alt="UKcal" width="240" style="display: block; width: 240px; height: auto; margin: 0 auto; background-color: #eef7e2;" />
+    </td>
+  </tr>
+
+  <!-- Divider -->
+  <tr>
+    <td bgcolor="#7ba21b" style="background-color: #7ba21b; padding: 0; height: 1px; line-height: 1px; font-size: 1px;">&#8203;</td>
+  </tr>
+
+  <!-- Code Section -->
+  <tr>
+    <td bgcolor="#ffffff" style="padding: 40px 32px 28px 32px; background-color: #ffffff;">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #eef7e2; border: 1.5px solid #7ba21b; border-radius: 14px;">
+        <tr>
+          <td style="padding: 24px 20px; text-align: center;">
+            <p style="margin: 0 0 14px 0; color: #5a7a10; font-size: 18px; font-weight: 700; font-family: 'Segoe UI', Arial, sans-serif;">Your Code</p>
+            <p style="margin: 0; color: #5a7a10; font-size: 38px; font-weight: 700; letter-spacing: 12px; font-family: 'Courier New', monospace;">{####}</p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Expiry + Disclaimer -->
+  <tr>
+    <td bgcolor="#ffffff" style="padding: 0 32px 28px 32px; background-color: #ffffff; text-align: center;">
+      <p style="margin: 0; color: #1f2937; font-size: 13px; font-weight: 600; line-height: 1.8; text-align: center;">
+        This code will expire in 5 minutes.<br />
+        If you did not request this code, you can safely ignore this email.
+      </p>
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td bgcolor="#ffffff" style="padding: 16px 32px 28px 32px; background-color: #ffffff;">
+      <p style="margin: 0 0 6px 0; color: #6b7280; font-size: 12px; text-align: center;">© 2025 UKcal. All rights reserved.</p>
+      <p style="margin: 0; color: #9ca3af; font-size: 11px; text-align: center;">This is an automated message. Please do not reply.</p>
+    </td>
+  </tr>
+
 </table>
 </td></tr>
 </table>
@@ -67,54 +84,21 @@ function wrap(bodyContent) {
 </html>`;
 }
 
-// ── Email templates ──────────────────────────────────────────────────────────
-
-function signInEmail() {
-  return wrap(`
-<h2 style="margin: 0 0 16px 0; color: #1f2937; font-size: 22px; font-weight: 600; text-align: center;">Your Login Code</h2>
-<p style="margin: 0 0 30px 0; color: #6b7280; font-size: 15px; line-height: 1.6; text-align: center;">
-  Use the code below to sign in to UKcal. It expires in 24 hours.
-</p>
-${otpBox()}
-<p style="margin: 0; color: #9ca3af; font-size: 13px; text-align: center; line-height: 1.5;">
-  If you didn't request this code, you can safely ignore this email.
-</p>`);
-}
-
-function verificationEmail() {
-  return wrap(`
-<h2 style="margin: 0 0 16px 0; color: #1f2937; font-size: 22px; font-weight: 600; text-align: center;">Your Verification Code</h2>
-<p style="margin: 0 0 30px 0; color: #6b7280; font-size: 15px; line-height: 1.6; text-align: center;">
-  Use the code below to complete your request in UKcal. It expires in 24 hours.
-</p>
-${otpBox()}
-<p style="margin: 0; color: #9ca3af; font-size: 13px; text-align: center; line-height: 1.5;">
-  If you didn't request this code, you can safely ignore this email.
-</p>`);
-}
-
 // ── Handler ──────────────────────────────────────────────────────────────────
 
 exports.handler = async (event) => {
   const trigger = event.triggerSource;
 
-  if (trigger === 'CustomMessage_SignUp' || trigger === 'CustomMessage_ResendCode') {
-    // New user — email OTP for sign-up verification
-    event.response.emailSubject = 'Your UKcal login code';
-    event.response.emailMessage = signInEmail();
-    return event;
-  }
-
-  if (trigger === 'CustomMessage_ForgotPassword') {
-    // Covers two cases in the app:
-    //   1. Existing user signing in (app calls resetPassword)
-    //   2. Delete-account OTP (app also calls resetPassword)
-    // Both need a verification code — use a generic branded template.
+  if (
+    trigger === 'CustomMessage_SignUp' ||
+    trigger === 'CustomMessage_ResendCode' ||
+    trigger === 'CustomMessage_ForgotPassword'
+  ) {
     event.response.emailSubject = 'Your UKcal verification code';
-    event.response.emailMessage = verificationEmail();
+    event.response.emailMessage = buildEmail();
     return event;
   }
 
-  // All other triggers (AdminCreateUser, VerifyUserAttribute, etc.) — use Cognito defaults
+  // All other triggers — use Cognito defaults
   return event;
 };

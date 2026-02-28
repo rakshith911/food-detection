@@ -468,13 +468,12 @@ export default function CameraScreen() {
               </View>
             </View>
 
-            {/* Recording Indicator - Video disabled for now */}
-            {/* {activeTab === 'video' && isRecording && (
+            {activeTab === 'video' && isRecording && (
               <View style={styles.recordingIndicator}>
                 <View style={styles.recordingDot} />
                 <Text style={styles.recordingText}>Recording: {recordingTime}s</Text>
               </View>
-            )} */}
+            )}
 
             {/* Camera Frame Indicators - only when camera is available */}
             {isCameraAvailable && (
@@ -521,8 +520,7 @@ export default function CameraScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* Video tab disabled for now */}
-            {/* <TouchableOpacity
+            <TouchableOpacity
               style={styles.tab}
               onPress={() => { setActiveTab('video'); setLastMediaMode('video'); }}
             >
@@ -534,7 +532,7 @@ export default function CameraScreen() {
               >
                 VIDEO
               </Text>
-            </TouchableOpacity> */}
+            </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.tab}
@@ -557,15 +555,14 @@ export default function CameraScreen() {
              </TouchableOpacity>
            )}
 
-           {/* Video record button disabled for now */}
-           {/* {activeTab === 'video' && isCameraAvailable && (
+           {activeTab === 'video' && isCameraAvailable && (
             <TouchableOpacity
               style={[styles.shutterButton, isRecording && styles.recordingButton]}
               onPress={isRecording ? stopRecording : startRecording}
             >
               <View style={[styles.shutterInner, isRecording && styles.recordingInner]} />
             </TouchableOpacity>
-          )} */}
+          )}
           
            {/* Show gallery prompt when camera not available */}
            {!isCameraAvailable && (activeTab === 'photo' || activeTab === 'video') && (
